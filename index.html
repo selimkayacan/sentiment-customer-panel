@@ -737,15 +737,16 @@ function openWizard() {
   const { url, key } = cfg();
   const wizUrl = `wizard.html?customer_id=${currentCustomer.customer_id}&return=${encodeURIComponent(window.location.href)}`;
   const win = window.open(wizUrl, '_blank', 'width=820,height=900,scrollbars=yes');
-  try {
-    setTimeout(() => {
-      win.localStorage.setItem('sb_url', url);
-      win.localStorage.setItem('sb_key', key);
-      const s = getSvcSettings();
-      win.localStorage.setItem('svc_gmaps',  s.gmaps);
-      win.localStorage.setItem('svc_secret', s.secret);
-    }, 800);
-  } catch(e) {}
+  getSvcSettings().then(s => {
+    try {
+      setTimeout(() => {
+        win.localStorage.setItem('sb_url', url);
+        win.localStorage.setItem('sb_key', key);
+        win.localStorage.setItem('svc_gmaps',  s.gmaps);
+        win.localStorage.setItem('svc_secret', s.secret);
+      }, 800);
+    } catch(e) {}
+  });
   window.addEventListener('message', (e) => {
     if (e.data?.type === 'wizard_complete') {
       loadBrands();
