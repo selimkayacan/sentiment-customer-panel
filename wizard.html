@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marka Kurulum Sihirbazı</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f7f6f2;--white:#fff;--ink:#1c1917;--ink2:#44403c;--muted:#a8a29e;
+  --line:#e7e5e4;--navy:#1e3a5f;--teal:#0f766e;--green:#15803d;--red:#b91c1c;
+  --amber:#b45309;--green-bg:#dcfce7;--red-bg:#fee2e2;
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);--r:12px;
+  font-family:'Cabinet Grotesk',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px}
+.wizard{width:100%;max-width:720px}
+
+/* PROGRESS */
+.progress-bar{display:flex;align-items:flex-start;margin-bottom:36px;gap:0}
+.step-item{display:flex;align-items:center;flex:1}
+.step-item:last-child{flex:none}
+.step-wrap{display:flex;flex-direction:column;align-items:center;gap:4px}
+.step-circle{width:32px;height:32px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0;transition:all .3s;background:var(--white)}
+.step-circle.active{border-color:var(--navy);color:var(--navy)}
+.step-circle.done{border-color:var(--green);background:var(--green);color:#fff}
+.step-line{flex:1;height:2px;background:var(--line);margin:0 6px;margin-top:16px}
+.step-line.done{background:var(--green)}
+.step-label{font-size:10px;color:var(--muted);white-space:nowrap;text-align:center;max-width:70px}
+
+/* CARD */
+.wiz-card{background:var(--white);border:1px solid var(--line);border-radius:16px;padding:36px;box-shadow:var(--shadow)}
+.wiz-title{font-family:'Fraunces',serif;font-size:24px;color:var(--ink);margin-bottom:8px}
+.wiz-sub{font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.6}
+.step{display:none}
+.step.active{display:block}
+
+/* FORM */
+.fg{margin-bottom:18px}
+.fg label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--ink2);margin-bottom:7px}
+.fg input,.fg select,.fg textarea{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:11px 14px;font-family:inherit;font-size:14px;color:var(--ink);outline:none;transition:border-color .15s;background:var(--white)}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--teal)}
+.fg textarea{resize:vertical;min-height:90px}
+.fg-hint{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}
+
+/* MODE SELECT */
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+.mode-card{border:2px solid var(--line);border-radius:12px;padding:18px;cursor:pointer;transition:all .2s;text-align:center}
+.mode-card:hover{border-color:var(--navy)}
+.mode-card.selected{border-color:var(--teal);background:#f0fdf4}
+.mode-card.selected.brand-mode{background:#eff6ff;border-color:var(--navy)}
+.mode-icon{font-size:28px;margin-bottom:8px}
+.mode-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:5px}
+.mode-desc{font-size:11px;color:var(--muted);line-height:1.5}
+
+/* LOCATION SELECT */
+.loc-search-wrap{display:flex;gap:8px;margin-bottom:12px}
+.loc-results{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto}
+.loc-result-item{border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px}
+.loc-result-item:hover{border-color:var(--teal);background:#f0fdf4}
+.loc-result-item.selected{border-color:var(--green);background:var(--green-bg)}
+.lri-check{margin-left:auto;font-size:18px;color:var(--green);display:none}
+.loc-result-item.selected .lri-check{display:block}
+.lri-name{font-size:13px;font-weight:700;color:var(--ink)}
+.lri-addr{font-size:11px;color:var(--muted);margin-top:2px}
+.lri-type{font-size:10px;background:var(--line);color:var(--muted);padding:2px 8px;border-radius:10px;display:inline-block;margin-top:4px}
+.selected-locs{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.sel-loc{border:1.5px solid var(--green);border-radius:10px;padding:10px 14px;background:var(--green-bg);display:flex;align-items:center;gap:10px}
+.sel-loc-name{flex:1;font-size:13px;font-weight:600}
+.sel-loc-rm{background:none;border:none;cursor:pointer;color:var(--red);font-size:18px;line-height:1}
+
+/* ALIAS */
+.alias-row{display:flex;gap:8px;margin-bottom:10px}
+.alias-wrap{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;min-height:36px;padding:8px;background:var(--bg);border-radius:8px}
+.alias-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:16px;font-size:12px;font-weight:600}
+.alias-tag button{background:none;border:none;cursor:pointer;font-size:13px;line-height:1}
+
+/* CATEGORY */
+.cat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cat-item{border:1.5px solid var(--line);border-radius:10px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:all .15s}
+.cat-item.on{border-color:var(--teal);background:#f0fdf4}
+.cat-name{font-size:13px;font-weight:600}
+.cat-desc{font-size:11px;color:var(--muted);margin-top:2px}
+.toggle-pill{width:38px;height:20px;border-radius:10px;background:var(--line);position:relative;transition:background .2s;flex-shrink:0}
+.toggle-pill.on{background:var(--teal)}
+.toggle-pill::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.toggle-pill.on::after{transform:translateX(18px)}
+
+/* RELIABILITY */
+.rel-section{margin-bottom:22px}
+.rel-title{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.rel-pb{font-size:10px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:2px 8px;color:var(--muted)}
+.rel-item{margin-bottom:13px}
+.rel-item label{display:block;font-size:13px;color:var(--ink2);margin-bottom:7px}
+.rel-options{display:flex;gap:7px;flex-wrap:wrap}
+.rel-opt{padding:5px 13px;border-radius:16px;border:1.5px solid var(--line);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;background:var(--white);color:var(--ink2);transition:all .15s}
+.rel-opt:hover{border-color:var(--navy);color:var(--navy)}
+.rel-opt.selected{border-color:var(--teal);background:#f0fdf4;color:var(--teal)}
+.rel-opt.selected.warn{border-color:var(--amber);background:#fffbeb;color:var(--amber)}
+.rel-opt.selected.ignore{border-color:var(--red);background:var(--red-bg);color:var(--red)}
+.divider{border:none;border-top:1px solid var(--line);margin:18px 0}
+
+/* FINAL */
+.final-box{text-align:center;padding:20px 0}
+.final-icon{font-size:48px;margin-bottom:16px}
+.final-title{font-family:'Fraunces',serif;font-size:22px;color:var(--ink);margin-bottom:8px}
+.final-sub{font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.6}
+
+/* BUTTONS */
+.btn-row{display:flex;justify-content:space-between;align-items:center;margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:700;transition:all .15s}
+.btn-primary{background:var(--navy);color:#fff}
+.btn-primary:hover{background:var(--teal)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-outline{background:transparent;color:var(--ink2);border:1.5px solid var(--line)}
+.btn-outline:hover{border-color:var(--navy);color:var(--navy)}
+.btn-green{background:var(--green);color:#fff}
+.btn-green:hover{background:#166534}
+.btn-sm{padding:6px 13px;font-size:12px}
+
+/* MISC */
+.spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+.spinner-dark{border-color:var(--line);border-top-color:var(--teal)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.alert-msg{padding:11px 15px;border-radius:8px;font-size:13px;margin-bottom:14px}
+.alert-error{background:var(--red-bg);color:var(--red)}
+.alert-success{background:var(--green-bg);color:var(--green)}
+.step-indicator{font-size:13px;color:var(--muted)}
+.info-box{background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:13px 15px;font-size:12px;color:#0369a1;line-height:1.6;margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="wizard">
+
+  <!-- PROGRESS -->
+  <div class="progress-bar" id="progress-bar">
+    <!-- JS ile oluşturulur -->
+  </div>
+
+  <div class="wiz-card">
+    <div id="wiz-error" class="alert-msg alert-error" style="display:none"></div>
+
+    <!-- ADIM 1: MARKA BİLGİSİ -->
+    <div class="step active" id="step-1">
+      <div class="wiz-title">Marka Bilgisi</div>
+      <div class="wiz-sub">Takip etmek istediğiniz markayı tanımlayın ve izleme modunu seçin.</div>
+      <div class="fg">
+        <label>Marka Adı</label>
+        <input id="s1-name" type="text" placeholder="örn: Düşler Şatosu Anaokulu">
+      </div>
+      <div class="fg">
+        <label>Sektör</label>
+        <select id="s1-sector">
+          <option value="education">Eğitim / Anaokulu / Okul</option>
+          <option value="retail">Perakende / Zincir Mağaza</option>
+          <option value="restaurant">Restoran / Kafe</option>
+          <option value="health">Sağlık / Klinik</option>
+          <option value="hotel">Otel / Konaklama</option>
+          <option value="ecommerce">E-ticaret</option>
+          <option value="custom">Diğer</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>İzleme Modu</label>
+        <div class="mode-grid">
+          <div class="mode-card selected" id="mode-location" onclick="toggleMode('location')">
+            <div class="mode-icon">📍</div>
+            <div class="mode-title">Şube / Lokasyon</div>
+            <div class="mode-desc">Google Maps'teki şube yorumlarını takip et. Şube şube karşılaştır.</div>
+          </div>
+          <div class="mode-card" id="mode-brand" onclick="toggleMode('brand')">
+            <div class="mode-icon">🔍</div>
+            <div class="mode-title">Marka Geneli</div>
+            <div class="mode-desc">Twitter, Ekşi Sözlük'te markanın genel mention'larını izle.</div>
+          </div>
+        </div>
+        <div class="fg-hint">Her ikisini de seçebilirsiniz.</div>
+      </div>
+    </div>
+
+    <!-- ADIM 2: LOKASyon SEÇ -->
+    <div class="step" id="step-2">
+      <div class="wiz-title">Şubelerinizi Seçin</div>
+      <div class="wiz-sub">Sisteme tanımlı lokasyonlar arasından takip etmek istediklerinizi seçin.</div>
+      <div class="info-box">
+        💡 Listede görmediğiniz bir şube varsa platform yöneticinizle iletişime geçin. Şube ekleme yetkisi platform yöneticisindedir.
+      </div>
+      <div class="loc-search-wrap">
+        <input id="loc-search" type="text" placeholder="Şube adı veya şehir ara..." oninput="filterLocations()" style="flex:1">
+      </div>
+      <div class="loc-results" id="loc-results">
+        <div style="text-align:center;padding:20px;color:var(--muted)"><span class="spinner spinner-dark"></span></div>
+      </div>
+      <div id="selected-locs-wrap" style="margin-top:16px;display:none">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">
+          Seçilen Şubeler (<span id="sel-loc-count">0</span>)
+        </div>
+        <div class="selected-locs" id="selected-locs"></div>
+      </div>
+    </div>
+
+    <!-- ADIM 3: ANAHTAR KELİMELER (sadece marka modunda) -->
+    <div class="step" id="step-3">
+      <div class="wiz-title">Arama Terimleri</div>
+      <div class="wiz-sub">Markanızın sosyal medyada kullanılan farklı adlarını ve arama terimlerini ekleyin.</div>
+      <div class="fg">
+        <label>Kısa Ad / Yaygın Kullanım</label>
+        <div class="alias-row">
+          <input id="a-short" type="text" placeholder="örn: LCW, BİM" style="flex:1" onkeydown="if(event.key==='Enter')addAlias('short_name')">
+          <button class="btn btn-outline btn-sm" onclick="addAlias('short_name')">Ekle</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Sosyal Medya Kullanımları</label>
+        <div class="alias-row">
+          <input id="a-colloquial" type="text" placeholder="örn: lcwaikiki, rossmannda" style="flex:1" onkeydown="if(event.key==='Enter')addAlias('colloquial')">
+          <button class="btn btn-outline btn-sm" onclick="addAlias('colloquial')">Ekle</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Hashtag'ler</label>
+        <div class="alias-row">
+          <input id="a-hashtag" type="text" placeholder="örn: #LCW, #Rossmann" style="flex:1" onkeydown="if(event.key==='Enter')addAlias('hashtag')">
+          <button class="btn btn-outline btn-sm" onclick="addAlias('hashtag')">Ekle</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Twitter Hesabı</label>
+        <div class="alias-row">
+          <input id="a-handle" type="text" placeholder="örn: @duslersaktosu" style="flex:1" onkeydown="if(event.key==='Enter')addAlias('twitter_handle')">
+          <button class="btn btn-outline btn-sm" onclick="addAlias('twitter_handle')">Ekle</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Dışla (Yanlış Eşleşmeleri Engelle)</label>
+        <div class="alias-row">
+          <input id="a-exclude" type="text" placeholder="örn: rakip marka adı" style="flex:1" onkeydown="if(event.key==='Enter')addAlias('exclude')">
+          <button class="btn btn-outline btn-sm" onclick="addAlias('exclude')" style="background:var(--red-bg);color:var(--red);border-color:var(--red)">Dışla</button>
+        </div>
+        <div class="fg-hint">Bu terimler aramadan çıkarılır.</div>
+      </div>
+      <div class="fg">
+        <label>Ekli Terimler</label>
+        <div class="alias-wrap" id="alias-list">
+          <span style="font-size:12px;color:var(--muted)">Henüz terim eklenmedi</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADIM 4: KATEGORİLER -->
+    <div class="step" id="step-4">
+      <div class="wiz-title">Analiz Kategorileri</div>
+      <div class="wiz-sub">Hangi konuların analizde yer almasını istiyorsunuz?</div>
+      <div class="cat-grid" id="cat-grid">
+        <div style="color:var(--muted);font-size:13px;grid-column:1/-1;text-align:center;padding:20px">
+          <span class="spinner spinner-dark"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADIM 5: GÜVENİLİRLİK -->
+    <div class="step" id="step-5">
+      <div class="wiz-title">Güvenilirlik Kriterleri</div>
+      <div class="wiz-sub">Yorumların ne kadar ciddiye alınacağını belirleyin. Bu ayarlar sentiment skorunu etkiler.</div>
+
+      <div class="rel-section">
+        <div class="rel-title">📍 Google Maps <span class="rel-pb">Şube Yorumları</span></div>
+        <div class="rel-item">
+          <label>Tek yorumu olan kullanıcılar</label>
+          <div class="rel-options">
+            <button class="rel-opt selected" data-key="gmaps_single_review" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt warn" data-key="gmaps_single_review" onclick="setRel(this,'low')">Düşük Ağırlık</button>
+            <button class="rel-opt ignore" data-key="gmaps_single_review" onclick="setRel(this,'ignore')">Yoksay</button>
+          </div>
+        </div>
+        <div class="rel-item">
+          <label>Local Guide rozetli kullanıcılar</label>
+          <div class="rel-options">
+            <button class="rel-opt" data-key="gmaps_local_guide" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt selected" data-key="gmaps_local_guide" onclick="setRel(this,'high')">Yüksek Ağırlık</button>
+          </div>
+        </div>
+        <div class="rel-item">
+          <label>50 karakterden kısa yorumlar</label>
+          <div class="rel-options">
+            <button class="rel-opt" data-key="gmaps_short" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt selected warn" data-key="gmaps_short" onclick="setRel(this,'low')">Düşük Ağırlık</button>
+            <button class="rel-opt ignore" data-key="gmaps_short" onclick="setRel(this,'ignore')">Yoksay</button>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="rel-section" id="twitter-rel-section">
+        <div class="rel-title">🐦 Twitter / X <span class="rel-pb">Mention'lar</span></div>
+        <div class="rel-item">
+          <label>Az takipçili hesaplar (10'dan az)</label>
+          <div class="rel-options">
+            <button class="rel-opt selected" data-key="twitter_low_followers" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt warn" data-key="twitter_low_followers" onclick="setRel(this,'low')">Düşük Ağırlık</button>
+            <button class="rel-opt ignore" data-key="twitter_low_followers" onclick="setRel(this,'ignore')">Yoksay</button>
+          </div>
+        </div>
+        <div class="rel-item">
+          <label>Yeni hesaplar (30 günden genç)</label>
+          <div class="rel-options">
+            <button class="rel-opt" data-key="twitter_new_account" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt selected warn" data-key="twitter_new_account" onclick="setRel(this,'low')">Düşük Ağırlık</button>
+            <button class="rel-opt ignore" data-key="twitter_new_account" onclick="setRel(this,'ignore')">Yoksay</button>
+          </div>
+        </div>
+        <div class="rel-item">
+          <label>Viral tweetler (1000+ etkileşim)</label>
+          <div class="rel-options">
+            <button class="rel-opt" data-key="twitter_viral" onclick="setRel(this,'normal')">Normal</button>
+            <button class="rel-opt selected" data-key="twitter_viral" onclick="setRel(this,'high')">Yüksek Ağırlık</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SON ADIM: ÖZET & İLK ÇEKİM -->
+    <div class="step" id="step-final">
+      <div class="final-box">
+        <div class="final-icon" id="final-icon">🎯</div>
+        <div class="final-title" id="final-title">Kurulum Tamamlanıyor</div>
+        <div class="final-sub" id="final-sub">Ayarlarınız kaydediliyor...</div>
+        <div id="final-actions" style="display:none">
+          <button class="btn btn-green" style="font-size:15px;padding:14px 28px;margin-bottom:12px" onclick="startFirstFetch()">
+            ▶ İlk Verilerimi Çek ve Analiz Et
+          </button>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:20px">veya</div>
+          <button class="btn btn-outline" onclick="finishWizard()">Şimdi Değil, Dashboard'a Git</button>
+          <div id="fetch-status" style="margin-top:16px;font-size:13px;color:var(--muted)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NAVİGASYON -->
+    <div class="btn-row" id="btn-row">
+      <button class="btn btn-outline" id="btn-back" onclick="prevStep()" style="visibility:hidden">← Geri</button>
+      <span class="step-indicator" id="step-indicator"></span>
+      <button class="btn btn-primary" id="btn-next" onclick="nextStep()">Devam →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SUPABASE ──────────────────────────────────────────────
+const SUPABASE_URL      = 'https://escjdzsfxzwvshapzugb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzY2pkenNmeHp3dnNoYXB6dWdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMDQzMzgsImV4cCI6MjA4OTg4MDMzOH0.ylywekAEhONMpx5RBCdZXafUna9jZcB19etFrEcRJe8';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// URL parametreleri
+const params      = new URLSearchParams(window.location.search);
+const CUSTOMER_ID = params.get('customer_id') || '';
+const RETURN_URL  = params.get('return') || '';
+
+// ── STATE ─────────────────────────────────────────────────
+let currentStep = 1;
+let brandModeActive    = true;   // lokasyon
+let generalModeActive  = false;  // marka geneli
+
+// Adım listesi dinamik (modlara göre değişir)
+let steps = [];
+
+const wizData = {
+  brandName:   '',
+  sector:      'education',
+  modes:       ['location'],
+  locationIds: [],   // seçilen location_id'ler
+  aliases:     [],
+  categories:  {},
+  reliability: {
+    gmaps_single_review:  'normal',
+    gmaps_local_guide:    'high',
+    gmaps_short:          'low',
+    twitter_low_followers:'normal',
+    twitter_new_account:  'low',
+    twitter_viral:        'high',
+  },
+};
+
+let allLocations = [];  // admin'in eklediği lokasyonlar
+let savedBrandId = null;
+
+// ── ADIM YAPISI ───────────────────────────────────────────
+function buildSteps() {
+  steps = [{ id: 1, label: 'Marka' }];
+  if (wizData.modes.includes('location')) {
+    steps.push({ id: 2, label: 'Şubeler' });
+  }
+  if (wizData.modes.includes('brand')) {
+    steps.push({ id: 3, label: 'Terimler' });
+  }
+  steps.push({ id: 4, label: 'Kategoriler' });
+  steps.push({ id: 5, label: 'Güvenilirlik' });
+  steps.push({ id: 'final', label: 'Başlat' });
+  renderProgress();
+}
+
+function renderProgress() {
+  const bar = document.getElementById('progress-bar');
+  bar.innerHTML = steps.map((s, i) => {
+    const isLast = i === steps.length - 1;
+    return `
+      <div class="step-item">
+        <div class="step-wrap">
+          <div class="step-circle" id="sc-${s.id}">${i+1}</div>
+          <div class="step-label">${s.label}</div>
+        </div>
+        ${!isLast ? `<div class="step-line" id="sl-${s.id}"></div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function updateProgress() {
+  const currentIdx = steps.findIndex(s => s.id === currentStep);
+  steps.forEach((s, i) => {
+    const sc = document.getElementById('sc-' + s.id);
+    const sl = document.getElementById('sl-' + s.id);
+    if (!sc) return;
+    sc.classList.remove('active', 'done');
+    if (sl) sl.classList.remove('done');
+    if (i < currentIdx)       { sc.classList.add('done'); sc.textContent = '✓'; if (sl) sl.classList.add('done'); }
+    else if (i === currentIdx) { sc.classList.add('active'); sc.textContent = i+1; }
+    else                       { sc.textContent = i+1; }
+  });
+  const idx = currentIdx + 1;
+  document.getElementById('step-indicator').textContent = `${idx} / ${steps.length}`;
+  document.getElementById('btn-back').style.visibility = currentIdx > 0 ? 'visible' : 'hidden';
+
+  const isFinal = currentStep === 'final';
+  document.getElementById('btn-row').style.display = isFinal ? 'none' : 'flex';
+
+  const isLast = currentIdx === steps.length - 2;
+  document.getElementById('btn-next').textContent = isLast ? 'Kaydet →' : 'Devam →';
+}
+
+function showStep(stepId) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + stepId).classList.add('active');
+  currentStep = stepId;
+  updateProgress();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── NAVİGASYON ────────────────────────────────────────────
+async function nextStep() {
+  hideError();
+  if (!validateStep(currentStep)) return;
+  collectStep(currentStep);
+
+  const currentIdx = steps.findIndex(s => s.id === currentStep);
+  if (currentIdx === steps.length - 2) {
+    // Son adım → kaydet
+    await saveAll();
+    return;
+  }
+  showStep(steps[currentIdx + 1].id);
+
+  // Adım 2 yüklenince lokasyonları getir
+  if (steps[currentIdx + 1].id === 2) loadLocations();
+  // Adım 4 yüklenince kategorileri getir
+  if (steps[currentIdx + 1].id === 4) loadCategories();
+}
+
+function prevStep() {
+  const currentIdx = steps.findIndex(s => s.id === currentStep);
+  if (currentIdx > 0) showStep(steps[currentIdx - 1].id);
+}
+
+// ── MOD SEÇİMİ ───────────────────────────────────────────
+function toggleMode(mode) {
+  if (mode === 'location') {
+    brandModeActive = !brandModeActive;
+    if (!brandModeActive && !generalModeActive) brandModeActive = true;
+  } else {
+    generalModeActive = !generalModeActive;
+    if (!brandModeActive && !generalModeActive) generalModeActive = true;
+  }
+  document.getElementById('mode-location').classList.toggle('selected', brandModeActive);
+  document.getElementById('mode-brand').classList.toggle('selected', generalModeActive);
+  document.getElementById('mode-brand').classList.toggle('brand-mode', generalModeActive);
+
+  wizData.modes = [];
+  if (brandModeActive)   wizData.modes.push('location');
+  if (generalModeActive) wizData.modes.push('brand');
+
+  // Twitter güvenilirlik bölümü
+  const tw = document.getElementById('twitter-rel-section');
+  if (tw) tw.style.display = generalModeActive ? 'block' : 'none';
+
+  buildSteps();
+}
+
+// ── VALİDASYON ────────────────────────────────────────────
+function validateStep(stepId) {
+  if (stepId === 1) {
+    if (!document.getElementById('s1-name').value.trim()) {
+      showError('Marka adı zorunlu'); return false;
+    }
+  }
+  if (stepId === 2 && wizData.modes.includes('location')) {
+    if (!wizData.locationIds.length) {
+      showError('En az bir şube seçin'); return false;
+    }
+  }
+  return true;
+}
+
+// ── VERİ TOPLAMA ─────────────────────────────────────────
+function collectStep(stepId) {
+  if (stepId === 1) {
+    wizData.brandName = document.getElementById('s1-name').value.trim();
+    wizData.sector    = document.getElementById('s1-sector').value;
+  }
+}
+
+// ── LOKASYONları YÜKlE ────────────────────────────────────
+async function loadLocations() {
+  const el = document.getElementById('loc-results');
+  try {
+    // Bu müşterinin mevcut lokasyonlarını getir
+    // Önce müşterinin markalarını bul, sonra lokasyonlarını
+    const { data: brands } = await sb.from('brands')
+      .select('brand_id').eq('customer_id', CUSTOMER_ID);
+    
+    if (brands?.length) {
+      // Mevcut markalar varsa onların lokasyonlarını getir
+      const brandIds = brands.map(b => b.brand_id);
+      const { data: locs } = await sb.from('locations')
+        .select('location_id, name, address, location_type, google_place_id')
+        .in('brand_id', brandIds)
+        .order('name');
+      allLocations = locs || [];
+    } else {
+      // Henüz marka yok — tüm lokasyonları göster (admin eklemiş olabilir)
+      // Pratikte bu boş gelir, müşteri admin'den lokasyon eklemesini ister
+      allLocations = [];
+    }
+
+    renderLocations(allLocations);
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:13px">Hata: ${e.message}</div>`;
+  }
+}
+
+function renderLocations(locs) {
+  const el = document.getElementById('loc-results');
+  if (!locs.length) {
+    el.innerHTML = `
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">
+        Henüz lokasyon tanımlı değil.<br>
+        Platform yöneticinizden şubelerinizi sisteme eklemesini isteyin,<br>
+        ardından bu adıma gelin.
+      </div>`;
+    return;
+  }
+  el.innerHTML = locs.map(l => `
+    <div class="loc-result-item ${wizData.locationIds.includes(l.location_id) ? 'selected' : ''}"
+         id="loc-${l.location_id}"
+         onclick="toggleLoc('${l.location_id}', '${(l.name||'').replace(/'/g,"\\'")}', '${(l.address||'').replace(/'/g,"\\'")}')">
+      <div style="font-size:20px">${l.location_type === 'general' ? '🌐' : '📍'}</div>
+      <div>
+        <div class="lri-name">${l.name}</div>
+        <div class="lri-addr">${l.address || ''}</div>
+        <span class="lri-type">${l.location_type === 'general' ? 'Genel İzleme' : 'Şube'}</span>
+      </div>
+      <div class="lri-check">✓</div>
+    </div>
+  `).join('');
+}
+
+function filterLocations() {
+  const q = document.getElementById('loc-search').value.toLowerCase();
+  renderLocations(allLocations.filter(l =>
+    (l.name||'').toLowerCase().includes(q) ||
+    (l.address||'').toLowerCase().includes(q)
+  ));
+}
+
+function toggleLoc(locId, name, addr) {
+  const idx = wizData.locationIds.indexOf(locId);
+  if (idx > -1) {
+    wizData.locationIds.splice(idx, 1);
+  } else {
+    wizData.locationIds.push(locId);
+  }
+  // UI güncelle
+  const item = document.getElementById('loc-' + locId);
+  if (item) item.classList.toggle('selected', wizData.locationIds.includes(locId));
+  renderSelectedLocs();
+}
+
+function renderSelectedLocs() {
+  const wrap  = document.getElementById('selected-locs-wrap');
+  const list  = document.getElementById('selected-locs');
+  const count = document.getElementById('sel-loc-count');
+  count.textContent = wizData.locationIds.length;
+  wrap.style.display = wizData.locationIds.length ? 'block' : 'none';
+  list.innerHTML = wizData.locationIds.map(id => {
+    const loc = allLocations.find(l => l.location_id === id) || {};
+    return `
+      <div class="sel-loc">
+        <span>📍</span>
+        <span class="sel-loc-name">${loc.name || id}</span>
+        <button class="sel-loc-rm" onclick="toggleLoc('${id}')">×</button>
+      </div>`;
+  }).join('');
+}
+
+// ── ALİAS ────────────────────────────────────────────────
+const TYPE_CONFIG = {
+  short_name:     { label:'Kısa Ad',      bg:'#e0f2fe', color:'#0369a1' },
+  colloquial:     { label:'Sosyal Medya', bg:'#ede9fe', color:'#6d28d9' },
+  hashtag:        { label:'Hashtag',      bg:'#dcfce7', color:'#15803d' },
+  twitter_handle: { label:'Twitter',      bg:'#dbeafe', color:'#1d4ed8' },
+  exclude:        { label:'Dışla',        bg:'#fee2e2', color:'#b91c1c' },
+};
+
+const ALIAS_INPUTS = {
+  short_name:     'a-short',
+  colloquial:     'a-colloquial',
+  hashtag:        'a-hashtag',
+  twitter_handle: 'a-handle',
+  exclude:        'a-exclude',
+};
+
+function addAlias(type) {
+  const input = document.getElementById(ALIAS_INPUTS[type]);
+  const text  = (input?.value || '').trim();
+  if (!text) return;
+  if (wizData.aliases.find(a => a.text === text)) { input.value = ''; return; }
+  wizData.aliases.push({ text, type });
+  input.value = '';
+  renderAliases();
+}
+
+function removeAlias(idx) {
+  wizData.aliases.splice(idx, 1);
+  renderAliases();
+}
+
+function renderAliases() {
+  const el = document.getElementById('alias-list');
+  if (!wizData.aliases.length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Henüz terim eklenmedi</span>';
+    return;
+  }
+  el.innerHTML = wizData.aliases.map((a, i) => {
+    const cfg = TYPE_CONFIG[a.type] || { label:a.type, bg:'#f3f4f6', color:'#374151' };
+    return `<span class="alias-tag" style="background:${cfg.bg};color:${cfg.color}">
+      ${a.text} <span style="opacity:.6;font-size:10px">${cfg.label}</span>
+      <button onclick="removeAlias(${i})" style="color:${cfg.color}">×</button>
+    </span>`;
+  }).join('');
+}
+
+// ── KATEGORİLER ──────────────────────────────────────────
+async function loadCategories() {
+  const grid = document.getElementById('cat-grid');
+  const { data } = await sb.from('categories').select('*').order('name');
+  if (!data?.length) { grid.innerHTML = '<div style="color:var(--muted)">Kategori yüklenemedi</div>'; return; }
+  data.forEach(c => { wizData.categories[c.category_id] = true; });
+  grid.innerHTML = data.map(c => `
+    <div class="cat-item on" id="ci-${c.category_id}" onclick="toggleCat('${c.category_id}')">
+      <div>
+        <div class="cat-name">${c.name}</div>
+        <div class="cat-desc">${c.description || ''}</div>
+      </div>
+      <div class="toggle-pill on" id="tp-${c.category_id}"></div>
+    </div>
+  `).join('');
+}
+
+function toggleCat(id) {
+  wizData.categories[id] = !wizData.categories[id];
+  document.getElementById('ci-' + id).classList.toggle('on', wizData.categories[id]);
+  document.getElementById('tp-' + id).classList.toggle('on', wizData.categories[id]);
+}
+
+// ── GÜVENİLİRLİK ─────────────────────────────────────────
+function setRel(btn, val) {
+  event.stopPropagation();
+  const key = btn.dataset.key;
+  wizData.reliability[key] = val;
+  btn.closest('.rel-options').querySelectorAll('.rel-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+
+// ── KAYDET ───────────────────────────────────────────────
+async function saveAll() {
+  const btn = document.getElementById('btn-next');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+
+  showStep('final');
+  document.getElementById('final-icon').textContent = '⏳';
+  document.getElementById('final-title').textContent = 'Kaydediliyor...';
+  document.getElementById('final-sub').textContent = 'Ayarlarınız veritabanına yazılıyor.';
+
+  try {
+    if (!CUSTOMER_ID) throw new Error('Müşteri ID bulunamadı');
+
+    // 1. Marka oluştur
+    const { data: brand, error: be } = await sb.from('brands').insert({
+      customer_id:      CUSTOMER_ID,
+      name:             wizData.brandName,
+      sector_template:  wizData.sector,
+      monitoring_modes: wizData.modes,
+    }).select().single();
+    if (be) throw be;
+    savedBrandId = brand.brand_id;
+
+    // 2. Seçilen lokasyonları bu markaya bağla (location_connectors)
+    const { data: connectors } = await sb.from('connectors').select('connector_id, key');
+    for (const locId of wizData.locationIds) {
+      // location'ın tipini bul
+      const loc = allLocations.find(l => l.location_id === locId);
+      for (const conn of (connectors || [])) {
+        if (loc?.location_type === 'branch' && conn.key !== 'google_maps') continue;
+        if (loc?.location_type === 'general' && conn.key === 'google_maps') continue;
+        await sb.from('location_connectors').upsert({
+          location_id:  locId,
+          connector_id: conn.connector_id,
+          enabled:      true,
+          external_id:  loc?.google_place_id || null,
+        }, { onConflict: 'location_id,connector_id' });
+      }
+    }
+
+    // 3. Alias'lar (sadece marka modunda)
+    if (wizData.modes.includes('brand') && wizData.aliases.length) {
+      const { data: conns } = await sb.from('connectors').select('connector_id, key');
+      for (const alias of wizData.aliases) {
+        let connectorId = null;
+        if (alias.type === 'twitter_handle') connectorId = conns?.find(c=>c.key==='twitter_x')?.connector_id;
+        if (alias.type === 'eksi_slug')      connectorId = conns?.find(c=>c.key==='eksisozluk')?.connector_id;
+        await sb.from('brand_aliases').insert({
+          brand_id: savedBrandId, alias_text: alias.text,
+          alias_type: alias.type, connector_id: connectorId || null, enabled: true,
+        });
+      }
+    }
+
+    // 4. Kategoriler
+    const { data: allCats } = await sb.from('categories').select('category_id');
+    for (const cat of (allCats || [])) {
+      await sb.from('customer_categories').upsert({
+        customer_id: CUSTOMER_ID, brand_id: savedBrandId,
+        category_id: cat.category_id,
+        enabled: wizData.categories[cat.category_id] !== false,
+        keywords_json: [],
+      }, { onConflict: 'customer_id,category_id' });
+    }
+
+    // 5. Güvenilirlik kuralları
+    const relRules = buildReliabilityRules(CUSTOMER_ID, connectors || []);
+    for (const rule of relRules) {
+      await sb.from('reliability_rules').insert(rule);
+    }
+
+    // 6. Analiz dönemi başlat
+    for (const locId of wizData.locationIds) {
+      await sb.from('analysis_periods').insert({
+        brand_id:    savedBrandId,
+        location_id: locId,
+        start_date:  new Date().toISOString().slice(0, 10),
+        status:      'in_progress',
+      });
+    }
+
+    // 7. Onboarding tamamlandı
+    await sb.from('customers').update({ onboarding_completed: true, onboarding_step: 5 })
+      .eq('customer_id', CUSTOMER_ID);
+
+    // Başarı
+    document.getElementById('final-icon').textContent   = '🎉';
+    document.getElementById('final-title').textContent  = 'Kurulum Tamamlandı!';
+    document.getElementById('final-sub').textContent    = `"${wizData.brandName}" markası başarıyla oluşturuldu. Şimdi ilk verileri çekip analiz edebilirsiniz.`;
+    document.getElementById('final-actions').style.display = 'block';
+
+  } catch(e) {
+    document.getElementById('final-icon').textContent  = '❌';
+    document.getElementById('final-title').textContent = 'Bir hata oluştu';
+    document.getElementById('final-sub').textContent   = e.message;
+    document.getElementById('btn-row').style.display   = 'flex';
+    document.getElementById('btn-next').disabled       = false;
+    document.getElementById('btn-next').textContent    = 'Tekrar Dene';
+  }
+}
+
+function buildReliabilityRules(customerId, connectors) {
+  const rules = [];
+  const gid = connectors.find(c=>c.key==='google_maps')?.connector_id;
+  const tid = connectors.find(c=>c.key==='twitter_x')?.connector_id;
+  const map = {
+    gmaps_single_review:   { cid:gid, ct:'review_count_lt',     cv:'3' },
+    gmaps_short:           { cid:gid, ct:'char_length_lt',       cv:'50' },
+    twitter_low_followers: { cid:tid, ct:'followers_lt',         cv:'10' },
+    twitter_new_account:   { cid:tid, ct:'account_age_days_lt',  cv:'30' },
+  };
+  for (const [key, cfg] of Object.entries(map)) {
+    const val = wizData.reliability[key];
+    if (val === 'normal') continue;
+    rules.push({
+      customer_id:    customerId, connector_id: cfg.cid||null,
+      condition_type: cfg.ct,    condition_value: cfg.cv,
+      action_type:    val==='ignore'?'exclude':'reduce_weight_pct',
+      action_value:   val==='ignore'?100:50, priority: rules.length,
+    });
+  }
+  return rules;
+}
+
+// ── İLK ÇEKİM ────────────────────────────────────────────
+async function startFirstFetch() {
+  const btn = document.querySelector('[onclick="startFirstFetch()"]');
+  const st  = document.getElementById('fetch-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Çekiliyor...';
+  st.textContent = 'Veriler çekiliyor, bu birkaç dakika sürebilir...';
+
+  try {
+    const { data: settings } = await sb.from('system_settings').select('key,value');
+    const m = {}; (settings||[]).forEach(r => m[r.key] = r.value);
+    const gmapsUrl   = m['gmaps_url']   || '';
+    const analysisUrl = m['analysis_url'] || '';
+    const secret     = m['app_secret']  || '';
+
+    if (gmapsUrl && secret) {
+      await fetch(`${gmapsUrl.replace(/\/$/,'')}/fetch`, {
+        method: 'POST', headers: { 'X-App-Secret': secret },
+        signal: AbortSignal.timeout(120000),
+      });
+      st.textContent = '✓ Veriler çekildi! Analiz başlatılıyor...';
+    }
+    if (analysisUrl && secret) {
+      await fetch(`${analysisUrl.replace(/\/$/,'')}/analyze`, {
+        method: 'POST', headers: { 'X-App-Secret': secret },
+        signal: AbortSignal.timeout(300000),
+      });
+    }
+    st.textContent = '✓ Tamamlandı! Dashboard\'ınıza yönlendiriliyorsunuz...';
+    setTimeout(finishWizard, 1500);
+  } catch(e) {
+    st.textContent = 'Veri çekme başlatıldı, arka planda devam ediyor.';
+    setTimeout(finishWizard, 2000);
+  }
+}
+
+function finishWizard() {
+  window.opener?.postMessage({ type: 'wizard_complete', brandId: savedBrandId }, '*');
+  if (RETURN_URL) window.location.href = RETURN_URL;
+  else window.close();
+}
+
+// ── HELPERS ──────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('wiz-error');
+  el.style.display = 'block'; el.textContent = '⚠ ' + msg;
+}
+function hideError() {
+  document.getElementById('wiz-error').style.display = 'none';
+}
+
+// ── BOOT ─────────────────────────────────────────────────
+(function boot() {
+  wizData.modes = ['location'];
+  buildSteps();
+  updateProgress();
+  // Twitter rel bölümünü gizle başlangıçta (marka modu kapalı)
+  const tw = document.getElementById('twitter-rel-section');
+  if (tw) tw.style.display = 'none';
+})();
+</script>
+</body>
+</html>
