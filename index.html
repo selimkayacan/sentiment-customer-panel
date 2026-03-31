@@ -759,7 +759,7 @@ async function afterLogin() {
   document.getElementById('user-email').textContent = currentUser?.email || '—';
 
   const { data: usr } = await sb.from('users')
-    .select('*, customers(*)')
+    .select('*, customers(*, modes(key, name))')
     .eq('email', currentUser.email)
     .maybeSingle();
 
