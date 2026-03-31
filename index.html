@@ -286,6 +286,7 @@ td{padding:11px 13px;font-size:13px}
     <div class="tab" data-tab="locations" onclick="goTab('locations')">📍 Şubeler</div>
     <div class="tab" data-tab="social" onclick="goTab('social')">🔍 Sosyal Medya</div>
     <div class="tab" data-tab="categories" onclick="goTab('categories')">Kategoriler</div>
+    <div class="tab manager-only saas-full-only" data-tab="alerts" onclick="goTab('alerts')">🔔 Alertler</div>
     <div class="tab manager-only" data-tab="actions" onclick="goTab('actions')">⚡ Aksiyonlar</div>
     <div class="tab manager-only" data-tab="reports" onclick="goTab('reports')">📄 Raporlar</div>
   </div>
@@ -566,6 +567,88 @@ td{padding:11px 13px;font-size:13px}
 
     </div>
 
+    <!-- ALERTLER (SaaS Full Only) -->
+    <div class="page manager-only saas-full-only" id="tab-alerts">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+        <!-- Sol: Aktif Alertler -->
+        <div>
+          <div class="section-title">🔔 Aktif Alertler</div>
+          <div id="alerts-list" style="display:flex;flex-direction:column;gap:10px">
+            <div class="empty"><span class="spinner"></span></div>
+          </div>
+        </div>
+
+        <!-- Sağ: Kural Yönetimi -->
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="section-title" style="margin-bottom:0">Kural Yönetimi</div>
+            <button class="btn btn-primary btn-sm" onclick="showAddRule()">+ Kural Ekle</button>
+          </div>
+          <div id="rules-list" style="display:flex;flex-direction:column;gap:10px">
+            <div class="empty"><span class="spinner"></span></div>
+          </div>
+
+          <!-- Kural Ekleme Formu -->
+          <div id="add-rule-form" style="display:none;background:var(--bg);border-radius:10px;padding:16px;margin-top:14px;border:1.5px solid var(--line)">
+            <div style="font-size:13px;font-weight:700;margin-bottom:12px">Yeni Kural</div>
+            <div class="fg" style="margin-bottom:12px">
+              <label>Kural Tipi</label>
+              <select id="rule-type" onchange="updateRuleForm()" style="border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;width:100%;outline:none;background:var(--white)">
+                <option value="sentiment_below">Sentiment Skoru Düşük</option>
+                <option value="keyword_match">Kritik Kelime Tespiti</option>
+                <option value="volume_spike">Negatif Yorum Patlaması</option>
+                <option value="raw_score_below">Yıldız Puanı Düşük</option>
+              </select>
+            </div>
+            <div class="fg" id="rule-threshold-wrap" style="margin-bottom:12px">
+              <label id="rule-threshold-label">Eşik Değeri</label>
+              <div style="display:flex;align-items:center;gap:10px">
+                <input type="range" id="rule-threshold" min="0" max="100" value="30" style="flex:1" oninput="document.getElementById('rule-threshold-display').textContent=this.value">
+                <span id="rule-threshold-display" style="font-size:16px;font-weight:700;color:var(--red);min-width:30px">30</span>
+              </div>
+            </div>
+            <div class="fg" id="rule-keywords-wrap" style="display:none;margin-bottom:12px">
+              <label>Kritik Kelimeler (virgülle ayır)</label>
+              <input id="rule-keywords" type="text" placeholder="mahkeme, zehir, hastane..." style="border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;width:100%;outline:none">
+            </div>
+            <div class="fg" style="margin-bottom:12px">
+              <label>Önem Seviyesi</label>
+              <select id="rule-severity" style="border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;width:100%;outline:none;background:var(--white)">
+                <option value="critical">🔴 Kritik</option>
+                <option value="high">🟠 Yüksek</option>
+                <option value="medium" selected>🟡 Orta</option>
+                <option value="info">🔵 Bilgi</option>
+              </select>
+            </div>
+            <div class="fg" style="margin-bottom:14px">
+              <label>Bildirim E-postası</label>
+              <input id="rule-email" type="email" placeholder="yonetici@firma.com" style="border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;width:100%;outline:none">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" onclick="saveRule()">Kaydet</button>
+              <button class="btn btn-outline btn-sm" onclick="hideAddRule()">İptal</button>
+            </div>
+            <div id="rule-save-result" style="margin-top:8px;font-size:12px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bildirim Ayarları -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">📧 Bildirim Testi</span></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Bildirim sisteminizin çalıştığını test edin.</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input id="test-email-input" type="email" placeholder="test@firma.com" style="border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;outline:none;width:260px">
+            <button class="btn btn-outline btn-sm" onclick="sendTestEmail()">Test Maili Gönder</button>
+            <span id="test-email-result" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
     <!-- RAPORLAR -->
     <div class="page manager-only" id="tab-reports">
       <div class="section-title">Raporlar</div>
@@ -688,6 +771,13 @@ async function afterLogin() {
   document.querySelectorAll('.manager-only').forEach(el => {
     el.style.display = isManager ? '' : 'none';
     if (el.classList.contains('tab')) el.style.display = isManager ? 'block' : 'none';
+  });
+
+  // SaaS Full görünürlüğü
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  document.querySelectorAll('.saas-full-only').forEach(el => {
+    el.style.display = isSaasFull ? '' : 'none';
+    if (el.classList.contains('tab')) el.style.display = isSaasFull ? 'block' : 'none';
   });
 
   await loadBrands();
@@ -814,7 +904,15 @@ function goTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('tab-' + tab);
-  if (el) { el.classList.add('active'); reload(); }
+  if (el) {
+    el.classList.add('active');
+    if (tab === 'overview')   loadOverview();
+    if (tab === 'locations')  loadLocations();
+    if (tab === 'social')     loadSocialTab();
+    if (tab === 'categories') loadCatPage();
+    if (tab === 'alerts')     loadAlerts();
+    if (tab === 'reports')    loadReports();
+  }
 }
 
 // ── HELPERS ──────────────────────────────────────────────
@@ -1268,6 +1366,192 @@ async function triggerSocial() {
     reload();
   }
   btn.disabled=false; btn.textContent='🔍 Sosyal Medya Çek ve Analiz Et';
+}
+
+// ── ALERTS ───────────────────────────────────────────────
+async function loadAlerts() {
+  await Promise.all([loadAlertsList(), loadRulesList()]);
+}
+
+async function loadAlertsList() {
+  const el = document.getElementById('alerts-list');
+  if (!currentCustomer) return;
+
+  const { data } = await sb.from('alerts')
+    .select('*, alert_rules(rule_type, severity_level), locations(name), reviews(review_text, raw_score, source_url)')
+    .eq('status', 'open')
+    .order('detected_at', { ascending: false })
+    .limit(20);
+
+  if (!data?.length) {
+    el.innerHTML = '<div class="empty" style="padding:20px">✓ Aktif alert yok</div>';
+    return;
+  }
+
+  const severityColor = { critical:'var(--red)', high:'var(--amber)', medium:'var(--blue)', info:'var(--muted)' };
+  const severityLabel = { critical:'KRİTİK', high:'YÜKSEK', medium:'ORTA', info:'BİLGİ' };
+
+  el.innerHTML = data.map(a => {
+    const rule = a.alert_rules || {};
+    const loc  = a.locations || {};
+    const rev  = a.reviews || {};
+    const sev  = rule.severity_level || 'medium';
+    const color = severityColor[sev] || 'var(--muted)';
+    return `
+      <div style="background:var(--white);border:1px solid var(--line);border-left:4px solid ${color};border-radius:10px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase">${severityLabel[sev]||sev}</span>
+          <span style="font-size:11px;color:var(--muted)">${fdate(a.detected_at)}</span>
+        </div>
+        <div style="font-size:13px;color:var(--ink2);font-style:italic;margin-bottom:8px">"${truncate(rev.review_text||'—', 120)}"</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;color:var(--muted)">${loc.name||'—'}</span>
+          <div style="display:flex;gap:8px">
+            ${rev.source_url ? `<a href="${rev.source_url}" target="_blank" class="btn btn-outline btn-sm">Kaynağa Git ↗</a>` : ''}
+            <button class="btn btn-outline btn-sm" onclick="resolveAlert('${a.alert_id}')">✓ Çözüldü</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function resolveAlert(alertId) {
+  await sb.from('alerts').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('alert_id', alertId);
+  loadAlertsList();
+}
+
+async function loadRulesList() {
+  const el = document.getElementById('rules-list');
+  if (!currentCustomer) return;
+
+  const { data } = await sb.from('alert_rules')
+    .select('*').eq('customer_id', currentCustomer.customer_id).eq('enabled', true);
+
+  if (!data?.length) {
+    el.innerHTML = '<div class="empty" style="padding:16px;font-size:13px">Henüz kural yok — + Kural Ekle</div>';
+    return;
+  }
+
+  const typeLabel = {
+    sentiment_below: '📊 Sentiment Düşük',
+    keyword_match:   '🔑 Kelime Eşleşmesi',
+    volume_spike:    '📈 Yorum Patlaması',
+    raw_score_below: '⭐ Yıldız Düşük',
+  };
+
+  el.innerHTML = data.map(r => `
+    <div style="background:var(--white);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:13px;font-weight:700">${typeLabel[r.rule_type]||r.rule_type}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">
+          ${r.threshold ? `Eşik: ${r.threshold}` : ''}
+          ${r.keywords_json?.length ? `Kelimeler: ${r.keywords_json.join(', ')}` : ''}
+          · ${r.severity_level}
+        </div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteRule('${r.rule_id}')">Sil</button>
+    </div>
+  `).join('');
+}
+
+async function deleteRule(ruleId) {
+  if (!confirm('Bu kuralı silmek istediğine emin misin?')) return;
+  await sb.from('alert_rules').update({ enabled: false }).eq('rule_id', ruleId);
+  loadRulesList();
+}
+
+function showAddRule() {
+  document.getElementById('add-rule-form').style.display = 'block';
+  document.getElementById('rule-email').value = currentUser?.email || '';
+  updateRuleForm();
+}
+
+function hideAddRule() {
+  document.getElementById('add-rule-form').style.display = 'none';
+}
+
+function updateRuleForm() {
+  const type = document.getElementById('rule-type').value;
+  const thWrap = document.getElementById('rule-threshold-wrap');
+  const kwWrap = document.getElementById('rule-keywords-wrap');
+  const label  = document.getElementById('rule-threshold-label');
+
+  kwWrap.style.display  = type === 'keyword_match' ? 'block' : 'none';
+  thWrap.style.display  = type !== 'keyword_match' ? 'block' : 'none';
+
+  if (type === 'sentiment_below')  { label.textContent = 'Eşik — Bu skorun altı alert üretir'; document.getElementById('rule-threshold').max = 100; }
+  if (type === 'raw_score_below')  { label.textContent = 'Yıldız Eşiği (5 üzerinden)'; document.getElementById('rule-threshold').max = 5; }
+  if (type === 'volume_spike')     { label.textContent = 'Saatte kaç negatif yorum?'; document.getElementById('rule-threshold').max = 50; }
+}
+
+async function saveRule() {
+  const type     = document.getElementById('rule-type').value;
+  const threshold = parseFloat(document.getElementById('rule-threshold').value);
+  const severity = document.getElementById('rule-severity').value;
+  const email    = document.getElementById('rule-email').value.trim();
+  const keywords = document.getElementById('rule-keywords').value.split(',').map(k=>k.trim()).filter(Boolean);
+  const el       = document.getElementById('rule-save-result');
+
+  if (!currentCustomer) return;
+  if (type === 'keyword_match' && !keywords.length) { el.textContent = '⚠ Kelime giriniz'; el.style.color='var(--red)'; return; }
+
+  const { data: rule, error } = await sb.from('alert_rules').insert({
+    customer_id:    currentCustomer.customer_id,
+    brand_id:       currentBrandId || null,
+    rule_type:      type,
+    threshold:      type !== 'keyword_match' ? threshold : null,
+    keywords_json:  type === 'keyword_match' ? keywords : null,
+    severity_level: severity,
+    enabled:        true,
+  }).select().single();
+
+  if (error) { el.textContent = '✗ ' + error.message; el.style.color='var(--red)'; return; }
+
+  // Alıcı ekle
+  if (email && rule) {
+    const { data: usr } = await sb.from('users').select('user_id').eq('email', email).maybeSingle();
+    if (usr) {
+      await sb.from('alert_rule_recipients').insert({
+        rule_id:       rule.rule_id,
+        user_id:       usr.user_id,
+        channels_json: ['email'],
+      });
+    }
+  }
+
+  el.textContent = '✓ Kural eklendi'; el.style.color = 'var(--green)';
+  setTimeout(() => { hideAddRule(); loadRulesList(); }, 800);
+}
+
+async function sendTestEmail() {
+  const email = document.getElementById('test-email-input').value.trim();
+  const el    = document.getElementById('test-email-result');
+  if (!email) { el.textContent = '⚠ E-posta girin'; el.style.color='var(--amber)'; return; }
+
+  const s = _svc;
+  if (!s?.report || !s?.secret) { el.textContent = '⚠ Servis yapılandırılmamış'; el.style.color='var(--amber)'; return; }
+
+  // Alert engine URL'sini system_settings'ten al
+  const { data: settings } = await sb.from('system_settings').select('key,value');
+  const m = {}; (settings||[]).forEach(r => m[r.key] = r.value);
+  const alertUrl = m['alert_url'] || '';
+  const secret   = m['app_secret'] || '';
+
+  if (!alertUrl) { el.textContent = '⚠ Alert motoru URL tanımlı değil'; el.style.color='var(--amber)'; return; }
+
+  try {
+    el.textContent = '⏳ Gönderiliyor...'; el.style.color='var(--muted)';
+    const resp = await fetch(`${alertUrl.replace(/\/$/,'')}/test-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Secret': secret },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json();
+    if (data.sent) { el.textContent = '✓ Mail gönderildi!'; el.style.color='var(--green)'; }
+    else { el.textContent = '✗ Gönderilemedi'; el.style.color='var(--red)'; }
+  } catch(e) {
+    el.textContent = '✗ ' + e.message; el.style.color='var(--red)';
+  }
 }
 
 // ── REPORTS ───────────────────────────────────────────────
