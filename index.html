@@ -379,6 +379,20 @@ td{padding:11px 13px;font-size:13px}
           <div class="card-body"><div class="review-list" id="best-list"><div class="empty"><span class="spinner"></span></div></div></div>
         </div>
       </div>
+
+      <!-- AKSİYON ÖNERİLERİ -->
+      <div class="card" style="margin-top:20px" id="recommendations-card">
+        <div class="card-header">
+          <span class="card-title">⚡ Aksiyon Önerileri</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="rec-updated" style="font-size:11px;color:var(--muted)"></span>
+            <button class="btn btn-outline btn-sm" onclick="refreshRecommendations()" id="btn-rec-refresh">↻ Yenile</button>
+          </div>
+        </div>
+        <div class="card-body" id="rec-body">
+          <div class="empty"><span class="spinner"></span></div>
+        </div>
+      </div>
     </div>
 
     <!-- ŞUBELER -->
@@ -1017,6 +1031,7 @@ async function loadOverview() {
   await loadTrend(locIds);
   await loadCatTags(revIds, 'cat-tags');
   await loadBestWorst(revIds);
+  loadRecommendations(); // Async — beklemeden başlat
 }
 
 // ── TREND ────────────────────────────────────────────────
@@ -1366,6 +1381,95 @@ async function triggerSocial() {
     reload();
   }
   btn.disabled=false; btn.textContent='🔍 Sosyal Medya Çek ve Analiz Et';
+}
+
+// ── AKSİYON ÖNERİLERİ ────────────────────────────────────
+async function loadRecommendations() {
+  const el  = document.getElementById('rec-body');
+  const upd = document.getElementById('rec-updated');
+  if (!currentBrandId || !_svc?.analysis || !_svc?.secret) {
+    el.innerHTML = '<div class="empty">Servis yapılandırılmamış</div>'; return;
+  }
+
+  try {
+    const resp = await fetch(
+      `${_svc.analysis.replace(/\/$/,'')}/recommendations/${currentBrandId}`,
+      { headers: { 'X-App-Secret': _svc.secret } }
+    );
+    if (resp.status === 429) {
+      const d = await resp.json();
+      el.innerHTML = `<div class="empty">${d.message}</div>`; return;
+    }
+    if (!resp.ok) { el.innerHTML = '<div class="empty">Yeterli veri yok — önce veri çekin</div>'; return; }
+
+    const data = await resp.json();
+    const rec  = data.data;
+    const content = rec?.content_json || rec;
+    upd.textContent = rec?.generated_at ? `Son güncelleme: ${fdate(rec.generated_at)}` : '';
+    renderRecommendations(content);
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Bağlantı hatası</div>`;
+  }
+}
+
+function renderRecommendations(content) {
+  const el = document.getElementById('rec-body');
+  if (!content) { el.innerHTML = '<div class="empty">Öneri yok</div>'; return; }
+
+  const sections = [
+    { key: 'urgent',   label: '🔴 Bu Hafta Yapılmalı',  color: 'var(--red)',   bg: 'var(--red-bg)' },
+    { key: 'medium',   label: '🟡 Bu Ay Yapılmalı',     color: 'var(--amber)', bg: 'var(--amber-bg)' },
+    { key: 'positive', label: '🟢 İyi Gidiyor',         color: 'var(--green)', bg: 'var(--green-bg)' },
+  ];
+
+  let html = '';
+
+  if (content.summary) {
+    html += `<div style="background:var(--bg);border-radius:8px;padding:14px;margin-bottom:20px;font-size:14px;color:var(--ink2);line-height:1.7;border-left:4px solid var(--navy)">
+      ${content.summary}
+    </div>`;
+  }
+
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">';
+  for (const sec of sections) {
+    const items = content[sec.key] || [];
+    html += `<div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${sec.color};margin-bottom:10px">${sec.label}</div>
+      ${items.length ? items.map(item => `
+        <div style="background:${sec.bg};border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:4px">${item.title}</div>
+          <div style="font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:6px">${item.detail}</div>
+          ${item.metric ? `<div style="font-size:11px;color:var(--muted);font-style:italic">${item.metric}</div>` : ''}
+        </div>
+      `).join('') : `<div style="font-size:12px;color:var(--muted);padding:8px">—</div>`}
+    </div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function refreshRecommendations() {
+  const btn = document.getElementById('btn-rec-refresh');
+  const el  = document.getElementById('rec-body');
+  if (!currentBrandId || !_svc?.analysis || !_svc?.secret) return;
+
+  btn.disabled = true; btn.textContent = '⏳';
+  el.innerHTML = '<div class="empty"><span class="spinner"></span> Üretiliyor... (30-60 sn)</div>';
+
+  try {
+    const resp = await fetch(
+      `${_svc.analysis.replace(/\/$/,'')}/recommendations/${currentBrandId}/refresh`,
+      { method: 'POST', headers: { 'X-App-Secret': _svc.secret }, signal: AbortSignal.timeout(120000) }
+    );
+    const data = await resp.json();
+    if (resp.status === 429) { el.innerHTML = `<div class="empty">${data.message}</div>`; return; }
+    if (data.data?.content_json) renderRecommendations(data.data.content_json);
+    else el.innerHTML = '<div class="empty">Öneri üretilemedi</div>';
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Yenile';
+  }
 }
 
 // ── ALERTS ───────────────────────────────────────────────
