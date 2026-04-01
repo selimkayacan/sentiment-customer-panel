@@ -480,6 +480,35 @@ td{padding:11px 13px;font-size:13px}
       <div class="review-list" id="social-reviews-list">
         <div class="empty"><span class="spinner"></span></div>
       </div>
+
+      <!-- SOSyal Medya RAKİP KARŞILAŞTIRMA (SaaS Full) -->
+      <div class="saas-full-only" style="margin-top:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="section-title" style="margin-bottom:0">🆚 Sosyal Medya Rakip Karşılaştırması</div>
+        </div>
+
+        <!-- Rakip keyword yönetimi -->
+        <div class="card mb20" id="competitor-keywords-card">
+          <div class="card-header">
+            <span class="card-title">Rakip Arama Terimleri</span>
+            <span style="font-size:11px;color:var(--muted)">Her rakip için Twitter/Ekşi arama terimleri</span>
+          </div>
+          <div class="card-body" id="competitor-keywords-body">
+            <div class="empty"><span class="spinner"></span></div>
+          </div>
+        </div>
+
+        <!-- Karşılaştırma tablosu -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Sosyal Medya Karşılaştırması</span>
+            <button class="btn btn-outline btn-sm" onclick="loadSocialCompetitorComparison()">↻ Güncelle</button>
+          </div>
+          <div class="card-body" id="social-competitor-comparison">
+            <div class="empty"><span class="spinner"></span></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- KATEGORİLER -->
@@ -955,7 +984,7 @@ function goTab(tab) {
     el.classList.add('active');
     if (tab === 'overview')   loadOverview();
     if (tab === 'locations')  { loadLocations(); loadCompetitorComparison(); }
-    if (tab === 'social')     loadSocialTab();
+    if (tab === 'social')     { loadSocialTab(); loadCompetitorKeywords(); loadSocialCompetitorComparison(); }
     if (tab === 'categories') loadCatPage();
     if (tab === 'alerts')     loadAlerts();
     if (tab === 'reports')    loadReports();
@@ -1383,22 +1412,27 @@ async function loadCompetitorComparison() {
 // ── LOCATIONS ─────────────────────────────────────────────
 async function loadLocations() {
   const el = document.getElementById('loc-grid');
-  const locIds = await getLocIds('branch');
-  if (!locIds.length) { el.innerHTML='<div class="empty">Henüz şube yok</div>'; return; }
+  const { data: locs } = await sb.from('locations')
+    .select('location_id, name, address, location_type, lat, lng')
+    .eq('brand_id', currentBrandId).eq('location_type', 'branch');
+  allLocations = [...(allLocations.filter(l=>l.location_type!=='branch')), ...(locs||[])];
+
+  if (!locs?.length) { el.innerHTML='<div class="empty">Henüz şube yok</div>'; return; }
+  const locIds = locs.map(l=>l.location_id);
   const revIds = await getReviewIds(locIds);
   const { data: analyses } = await sb.from('review_analysis').select('review_id, overall_sentiment, sentiment_score').in('review_id', revIds);
   const { data: reviews } = await sb.from('reviews').select('review_id, location_id').in('review_id', revIds);
   const locRevMap={}; (reviews||[]).forEach(r=>{if(!locRevMap[r.location_id])locRevMap[r.location_id]=[];locRevMap[r.location_id].push(r.review_id);});
   const aMap={}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
-  const branchLocs = allLocations.filter(l=>l.location_type==='branch');
-  el.innerHTML = branchLocs.map(loc => {
+
+  el.innerHTML = locs.map(loc => {
     const rids=locRevMap[loc.location_id]||[];
     const as=rids.map(id=>aMap[id]).filter(Boolean);
     const avg=as.length?Math.round(as.reduce((s,a)=>s+(a.sentiment_score||0),0)/as.length):0;
     const pos=as.filter(a=>a.overall_sentiment==='positive').length;
     const neg=as.filter(a=>a.overall_sentiment==='negative').length;
     const pp=as.length?Math.round(pos/as.length*100):0, np=as.length?Math.round(neg/as.length*100):0;
-    return `<div class="loc-card" onclick="openLoc('${loc.location_id}','${loc.name.replace(/'/g,"\\'")}')">
+    return `<div class="loc-card" onclick="openLoc('${loc.location_id}','${loc.name.replace(/'/g,"\\'")}',${loc.lat||0},${loc.lng||0})">
       <div class="loc-name">📍 ${loc.name}</div>
       <div class="loc-addr">${loc.address||'—'}</div>
       <div class="loc-score-big" style="color:${scoreColor(avg)}">${avg||'—'}</div>
@@ -1412,17 +1446,253 @@ async function loadLocations() {
   }).join('');
 }
 
-async function openLoc(locId, name) {
+// Haversine mesafe hesabı (km)
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+async function openLoc(locId, name, lat, lng) {
   document.getElementById('loc-detail').style.display='block';
   document.getElementById('loc-detail-name').textContent=name;
   document.getElementById('loc-reviews').innerHTML='<div class="empty"><span class="spinner"></span></div>';
+
   const { data } = await sb.from('reviews').select('review_id').eq('location_id', locId);
   const ids=(data||[]).map(r=>r.review_id);
   await loadCatTags(ids, 'loc-cat-tags');
   await loadRevList('loc-reviews', ids, 'negative', 5, true);
+
+  // Yakın rakipleri göster (SaaS Full)
+  if (currentCustomer?.modes?.key === 'saas_full' && lat && lng) {
+    await loadNearbyCompetitors(locId, name, lat, lng);
+  }
+
   document.getElementById('loc-detail').scrollIntoView({behavior:'smooth'});
 }
-function closeLoc() { document.getElementById('loc-detail').style.display='none'; }
+
+async function loadNearbyCompetitors(locId, locName, lat, lng) {
+  // Rakip lokasyonlarını çek
+  const { data: competitors } = await sb.from('competitor_brands')
+    .select('brands(brand_id, name)').eq('customer_id', currentCustomer.customer_id);
+  if (!competitors?.length) return;
+
+  const compBrandIds = competitors.map(c => c.brands?.brand_id).filter(Boolean);
+  const { data: compLocs } = await sb.from('locations')
+    .select('location_id, name, address, lat, lng, brand_id, brands(name)')
+    .in('brand_id', compBrandIds).eq('location_type', 'branch');
+
+  // 500m içindekileri filtrele
+  const nearby = (compLocs||[]).filter(cl => {
+    if (!cl.lat || !cl.lng) return false;
+    return haversine(lat, lng, cl.lat, cl.lng) <= 0.5;
+  });
+
+  if (!nearby.length) return;
+
+  // Detay paneline nearby bölümünü ekle
+  let nearbyEl = document.getElementById('nearby-competitors');
+  if (!nearbyEl) {
+    nearbyEl = document.createElement('div');
+    nearbyEl.id = 'nearby-competitors';
+    document.getElementById('loc-detail').querySelector('.card-body').appendChild(nearbyEl);
+  }
+
+  nearbyEl.innerHTML = `
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)">
+      <div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:12px">
+        🆚 Bu şubeye yakın ${nearby.length} rakip var (500m içinde)
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px" id="nearby-grid">
+        <div class="empty"><span class="spinner"></span></div>
+      </div>
+    </div>`;
+
+  // Her yakın rakibin skorunu hesapla
+  const grid = document.getElementById('nearby-grid');
+  const myRevs = await sb.from('reviews').select('review_id').eq('location_id', locId);
+  const myIds  = (myRevs.data||[]).map(r=>r.review_id);
+  const myAnalyses = myIds.length ? (await sb.from('review_analysis').select('sentiment_score').in('review_id', myIds)).data || [] : [];
+  const myScore = myAnalyses.length ? Math.round(myAnalyses.reduce((s,a)=>s+(a.sentiment_score||0),0)/myAnalyses.length) : null;
+
+  const cards = await Promise.all(nearby.map(async cl => {
+    const { data: revs } = await sb.from('reviews').select('review_id').eq('location_id', cl.location_id);
+    const rids = (revs||[]).map(r=>r.review_id);
+    let score = null;
+    if (rids.length) {
+      const { data: an } = await sb.from('review_analysis').select('sentiment_score').in('review_id', rids);
+      score = an?.length ? Math.round(an.reduce((s,a)=>s+(a.sentiment_score||0),0)/an.length) : null;
+    }
+    const dist = Math.round(haversine(lat, lng, cl.lat, cl.lng) * 1000);
+    const diff = (myScore !== null && score !== null) ? score - myScore : null;
+    const diffHtml = diff !== null
+      ? `<div style="font-size:11px;font-weight:700;color:${diff<=0?'var(--green)':'var(--red)'}">
+           ${diff<=0?'▼ Sizin altınızda':'▲ Sizin üstünüzde'} (${diff>0?'+':''}${diff})
+         </div>`
+      : '';
+    return `<div style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:2px">${cl.brands?.name||'—'}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${cl.name} · ${dist}m</div>
+      <div style="font-family:'Fraunces',serif;font-size:28px;color:${scoreColor(score||0)}">${score??'—'}</div>
+      ${diffHtml}
+      ${!rids.length ? '<div style="font-size:11px;color:var(--muted)">Veri yok — çekim gerekli</div>' : ''}
+    </div>`;
+  }));
+
+  grid.innerHTML = cards.join('');
+}
+
+function closeLoc() {
+  document.getElementById('loc-detail').style.display='none';
+  const nb = document.getElementById('nearby-competitors');
+  if (nb) nb.remove();
+}
+
+// ── SOSYAL MEDYA RAKİP KARŞILAŞTIRMA ─────────────────────
+async function loadCompetitorKeywords() {
+  const el = document.getElementById('competitor-keywords-body');
+  if (!el || !currentCustomer) return;
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  if (!isSaasFull) return;
+
+  const { data: competitors } = await sb.from('competitor_brands')
+    .select('id, brands(brand_id, name)').eq('customer_id', currentCustomer.customer_id);
+
+  if (!competitors?.length) {
+    el.innerHTML = '<div class="empty">Henüz rakip tanımlı değil — Admin panelinden ekleyin</div>';
+    return;
+  }
+
+  // Her rakibin mevcut keyword'lerini çek
+  const rows = await Promise.all(competitors.map(async c => {
+    const brand = c.brands || {};
+    const { data: aliases } = await sb.from('brand_aliases')
+      .select('alias_text, alias_type').eq('brand_id', brand.brand_id).eq('enabled', true);
+    return { ...c, brand, aliases: aliases || [] };
+  }));
+
+  el.innerHTML = rows.map(c => `
+    <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--line)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">🏷 ${c.brand.name}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="comp-kw-${c.brand.brand_id}">
+        ${c.aliases.map(a => `
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;background:var(--blue-bg);color:var(--blue);font-size:12px;font-weight:600">
+            ${a.alias_text}
+            <button style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:13px"
+              onclick="removeCompetitorKeyword('${c.brand.brand_id}','${a.alias_text}')">×</button>
+          </span>
+        `).join('') || '<span style="font-size:12px;color:var(--muted)">Terim yok</span>'}
+      </div>
+      <div style="display:flex;gap:6px">
+        <input type="text" placeholder="örn: Zara, #zara, @zara_tr"
+          id="comp-kw-input-${c.brand.brand_id}"
+          style="border:1.5px solid var(--line);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:12px;outline:none;width:220px"
+          onkeydown="if(event.key==='Enter')addCompetitorKeyword('${c.brand.brand_id}')">
+        <button class="btn btn-outline btn-sm" onclick="addCompetitorKeyword('${c.brand.brand_id}')">+ Ekle</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addCompetitorKeyword(brandId) {
+  const input = document.getElementById(`comp-kw-input-${brandId}`);
+  const text  = (input?.value || '').trim();
+  if (!text) return;
+  const type = text.startsWith('#') ? 'hashtag' : text.startsWith('@') ? 'twitter_handle' : 'short_name';
+  await sb.from('brand_aliases').upsert({
+    brand_id: brandId, alias_text: text, alias_type: type, enabled: true
+  }, { onConflict: 'brand_id,alias_text' });
+  if (input) input.value = '';
+  loadCompetitorKeywords();
+}
+
+async function removeCompetitorKeyword(brandId, text) {
+  await sb.from('brand_aliases').update({ enabled: false })
+    .eq('brand_id', brandId).eq('alias_text', text);
+  loadCompetitorKeywords();
+}
+
+async function loadSocialCompetitorComparison() {
+  const el = document.getElementById('social-competitor-comparison');
+  if (!el || !currentCustomer) return;
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  if (!isSaasFull) return;
+
+  el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+
+  const { data: competitors } = await sb.from('competitor_brands')
+    .select('brands(brand_id, name)').eq('customer_id', currentCustomer.customer_id);
+
+  if (!competitors?.length) {
+    el.innerHTML = '<div class="empty">Henüz rakip tanımlı değil</div>'; return;
+  }
+
+  const myName = document.getElementById('brand-sel').options[document.getElementById('brand-sel').selectedIndex]?.text || 'Markanız';
+  const socialConnIds = allConnectors.filter(c=>['twitter_x','eksisozluk'].includes(c.key)).map(c=>c.connector_id);
+
+  const allBrands = [
+    { brand_id: currentBrandId, name: myName, isOwn: true },
+    ...competitors.map(c => ({ ...c.brands, isOwn: false })),
+  ];
+
+  const stats = await Promise.all(allBrands.map(async brand => {
+    const { data: locs } = await sb.from('locations').select('location_id').eq('brand_id', brand.brand_id);
+    const locIds = (locs||[]).map(l=>l.location_id);
+    if (!locIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0 };
+
+    let q = sb.from('reviews').select('review_id').in('location_id', locIds);
+    if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
+    const { data: revs } = await q;
+    const revIds = (revs||[]).map(r=>r.review_id);
+    if (!revIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0 };
+
+    const { data: an } = await sb.from('review_analysis')
+      .select('overall_sentiment, sentiment_score').in('review_id', revIds);
+    const all=an||[], total=all.length;
+    const pos=all.filter(a=>a.overall_sentiment==='positive').length;
+    const neg=all.filter(a=>a.overall_sentiment==='negative').length;
+    const avg=total?Math.round(all.reduce((s,a)=>s+(a.sentiment_score||0),0)/total):null;
+    return { ...brand, score: avg, total, pos, neg };
+  }));
+
+  const sorted = [...stats].sort((a,b)=>(b.score||0)-(a.score||0));
+  const myStats = stats.find(s=>s.isOwn);
+
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:16px">`;
+  sorted.forEach((b,i) => {
+    const diff = (myStats?.score && b.score && !b.isOwn) ? myStats.score - b.score : null;
+    const isLeader = i === 0;
+    html += `<div style="background:${b.isOwn?'#f0f4ff':'var(--bg)'};border:1.5px solid ${b.isOwn?'var(--navy)':'var(--line)'};border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px">
+        ${b.isOwn?'⭐ ':''}${b.name}
+        ${isLeader?'<div style="font-size:10px;color:var(--green)">Lider</div>':''}
+      </div>
+      <div style="font-family:\'Fraunces\',serif;font-size:32px;color:${scoreColor(b.score||0)};line-height:1">${b.score??'—'}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${b.total} içerik</div>
+      ${diff!==null?`<div style="font-size:11px;font-weight:700;margin-top:6px;color:${diff>=0?'var(--green)':'var(--red)'}">${diff>=0?'▲ '+diff+' puan önde':'▼ '+Math.abs(diff)+' puan geride'}</div>`:''}
+      ${b.total===0&&!b.isOwn?'<div style="font-size:10px;color:var(--amber);margin-top:4px">Terim ekleyin ↑</div>':''}
+    </div>`;
+  });
+  html += '</div>';
+
+  // Hacim karşılaştırması
+  const maxTotal = Math.max(...stats.map(s=>s.total), 1);
+  html += '<div style="margin-top:8px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Sosyal Medya Hacmi</div>';
+  sorted.forEach(b => {
+    const pct = Math.round((b.total/maxTotal)*100);
+    html += `<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:12px;font-weight:${b.isOwn?'700':'400'}">${b.isOwn?'⭐ ':''}${b.name}</span>
+        <span style="font-size:11px;color:var(--muted)">${b.total} içerik</span>
+      </div>
+      <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${b.isOwn?'var(--navy)':'var(--muted)'};border-radius:3px"></div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
 
 // ── SOCIAL MEDIA ──────────────────────────────────────────
 async function loadSocialTab() {
