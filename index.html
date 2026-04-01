@@ -435,6 +435,15 @@ td{padding:11px 13px;font-size:13px}
           </div>
         </div>
       </div>
+
+      <!-- RAKİP KARŞILAŞTIRMA (SaaS Full) -->
+      <div class="saas-full-only" id="competitor-section" style="margin-top:24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="section-title" style="margin-bottom:0">🆚 Rakip Karşılaştırması</div>
+          <button class="btn btn-outline btn-sm" onclick="loadCompetitorComparison()">↻ Yenile</button>
+        </div>
+        <div id="competitor-comparison"><div class="empty"><span class="spinner"></span></div></div>
+      </div>
     </div>
 
     <!-- SOSYAL MEDYA -->
@@ -945,7 +954,7 @@ function goTab(tab) {
   if (el) {
     el.classList.add('active');
     if (tab === 'overview')   loadOverview();
-    if (tab === 'locations')  loadLocations();
+    if (tab === 'locations')  { loadLocations(); loadCompetitorComparison(); }
     if (tab === 'social')     loadSocialTab();
     if (tab === 'categories') loadCatPage();
     if (tab === 'alerts')     loadAlerts();
@@ -1235,6 +1244,140 @@ async function loadRevList(containerId, revIds, sent, limit, asc) {
       </div>
     </div>`;
   }).join('');
+}
+
+// ── RAKİP KARŞILAŞTIRMA ──────────────────────────────────
+async function loadCompetitorComparison() {
+  const el = document.getElementById('competitor-comparison');
+  if (!el || !currentCustomer) return;
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  if (!isSaasFull) return;
+
+  el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+
+  // Rakipleri çek
+  const { data: competitors } = await sb.from('competitor_brands')
+    .select('brands(brand_id, name)')
+    .eq('customer_id', currentCustomer.customer_id);
+
+  if (!competitors?.length) {
+    el.innerHTML = '<div class="empty">Henüz rakip tanımlı değil — Admin panelinden rakip ekleyin</div>';
+    return;
+  }
+
+  // Kendi markamız
+  const myBrandId = currentBrandId;
+  const myName = document.getElementById('brand-sel').options[document.getElementById('brand-sel').selectedIndex]?.text || 'Markanız';
+
+  // Tüm markalar için skor hesapla
+  const allBrands = [
+    { brand_id: myBrandId, name: myName, isOwn: true },
+    ...competitors.map(c => ({ ...c.brands, isOwn: false })),
+  ];
+
+  const brandStats = await Promise.all(allBrands.map(async (brand) => {
+    const { data: locs } = await sb.from('locations')
+      .select('location_id').eq('brand_id', brand.brand_id).eq('location_type', 'branch');
+    const locIds = (locs||[]).map(l => l.location_id);
+    if (!locIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0, cats: {} };
+
+    const { data: revs } = await sb.from('reviews').select('review_id').in('location_id', locIds);
+    const revIds = (revs||[]).map(r => r.review_id);
+    if (!revIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0, cats: {} };
+
+    const { data: analyses } = await sb.from('review_analysis')
+      .select('overall_sentiment, sentiment_score').in('review_id', revIds);
+    const all = analyses||[];
+    const total = all.length;
+    const pos   = all.filter(a => a.overall_sentiment === 'positive').length;
+    const neg   = all.filter(a => a.overall_sentiment === 'negative').length;
+    const avg   = total ? Math.round(all.reduce((s,a) => s+(a.sentiment_score||0),0)/total) : null;
+
+    // Kategori skorları
+    const { data: catData } = await sb.from('review_category_analysis')
+      .select('sentiment, present, categories(name)').in('review_id', revIds.slice(0,200)).eq('present', true);
+    const cats = {};
+    (catData||[]).forEach(c => {
+      const n = c.categories?.name; if (!n) return;
+      if (!cats[n]) cats[n] = { pos:0, neg:0, total:0 };
+      cats[n].total++;
+      if (c.sentiment === 'positive') cats[n].pos++;
+      else if (c.sentiment === 'negative') cats[n].neg++;
+    });
+
+    return { ...brand, score: avg, total, pos, neg, cats };
+  }));
+
+  // Skor tablosu
+  let html = '<div style="overflow-x:auto;margin-bottom:20px">';
+  html += '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr>';
+  html += '<th style="padding:10px;text-align:left;font-size:11px;color:var(--muted);border-bottom:2px solid var(--line)">Marka</th>';
+  html += '<th style="padding:10px;text-align:center;font-size:11px;color:var(--muted);border-bottom:2px solid var(--line)">Genel Skor</th>';
+  html += '<th style="padding:10px;text-align:center;font-size:11px;color:var(--muted);border-bottom:2px solid var(--line)">Toplam Yorum</th>';
+  html += '<th style="padding:10px;text-align:center;font-size:11px;color:var(--muted);border-bottom:2px solid var(--line)">Pozitif %</th>';
+  html += '<th style="padding:10px;text-align:center;font-size:11px;color:var(--muted);border-bottom:2px solid var(--line)">Negatif %</th>';
+  html += '</tr></thead><tbody>';
+
+  const sorted = [...brandStats].sort((a,b) => (b.score||0) - (a.score||0));
+  sorted.forEach((b, i) => {
+    const pp = b.total ? Math.round(b.pos/b.total*100) : 0;
+    const np = b.total ? Math.round(b.neg/b.total*100) : 0;
+    const isFirst = i === 0;
+    const bg = b.isOwn ? '#f0f4ff' : 'var(--white)';
+    const fw = b.isOwn ? '700' : '400';
+    html += `<tr style="background:${bg};border-bottom:1px solid var(--line)">
+      <td style="padding:12px;font-size:14px;font-weight:${fw}">
+        ${b.isOwn ? '⭐ ' : ''}${b.name}
+        ${b.isOwn ? '<span style="font-size:10px;background:var(--navy);color:#fff;padding:1px 6px;border-radius:10px;margin-left:4px">Siz</span>' : ''}
+        ${isFirst && !b.isOwn ? '<span style="font-size:10px;background:var(--red-bg);color:var(--red);padding:1px 6px;border-radius:10px;margin-left:4px">Lider</span>' : ''}
+        ${isFirst && b.isOwn ? '<span style="font-size:10px;background:var(--green-bg);color:var(--green);padding:1px 6px;border-radius:10px;margin-left:4px">Lider</span>' : ''}
+      </td>
+      <td style="padding:12px;text-align:center">
+        <span style="font-family:'Fraunces',serif;font-size:22px;font-weight:700;color:${scoreColor(b.score||0)}">${b.score ?? '—'}</span>
+      </td>
+      <td style="padding:12px;text-align:center;font-size:13px">${b.total}</td>
+      <td style="padding:12px;text-align:center;font-size:13px;color:var(--green)">${pp}%</td>
+      <td style="padding:12px;text-align:center;font-size:13px;color:var(--red)">${np}%</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  // Kategori karşılaştırması
+  const allCats = [...new Set(brandStats.flatMap(b => Object.keys(b.cats)))];
+  if (allCats.length) {
+    html += `<div class="card" style="margin-top:16px">
+      <div class="card-header"><span class="card-title">Kategori Bazlı Karşılaştırma</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Kategori</th>
+            ${brandStats.map(b => `<th style="text-align:center">${b.name}${b.isOwn ? ' ⭐' : ''}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${allCats.map(cat => {
+              const scores = brandStats.map(b => {
+                const c = b.cats[cat];
+                if (!c || !c.total) return null;
+                return Math.round(c.pos/c.total*100);
+              });
+              const maxScore = Math.max(...scores.filter(s => s !== null));
+              return `<tr>
+                <td><strong>${cat}</strong></td>
+                ${scores.map((s, i) => {
+                  if (s === null) return '<td style="text-align:center;color:var(--muted)">—</td>';
+                  const isMax = s === maxScore;
+                  return `<td style="text-align:center;color:${scoreColor(s)};font-weight:${isMax?'700':'400'}">${s}${isMax ? ' ▲' : ''}</td>`;
+                }).join('')}
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 // ── LOCATIONS ─────────────────────────────────────────────
