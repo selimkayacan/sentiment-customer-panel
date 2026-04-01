@@ -361,7 +361,31 @@ td{padding:11px 13px;font-size:13px}
             <button class="btn btn-outline btn-sm" id="btn-trend-vol" onclick="setTrendMode('volume')" style="opacity:.5">Hacim</button>
           </div>
         </div>
-        <div class="card-body"><div class="chart-wrap"><canvas id="trend-chart"></canvas></div></div>
+        <div class="card-body">
+          <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">⚑ Uygulanan Öneriler</div>
+              <button class="btn btn-outline btn-sm" onclick="showAddMilestone()">+ Uygulama Ekle</button>
+            </div>
+            <div id="milestone-list"></div>
+            <!-- Milestone Ekleme Formu -->
+            <div id="milestone-form" style="display:none;background:var(--bg);border-radius:8px;padding:14px;margin-top:10px">
+              <div style="font-size:12px;font-weight:700;margin-bottom:10px">Hangi öneriyi uyguladınız?</div>
+              <select id="ms-rec-select" style="width:100%;border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;margin-bottom:8px;outline:none;background:var(--white)">
+                <option value="">Öneri seç veya manuel girin...</option>
+              </select>
+              <input id="ms-title" type="text" placeholder="veya kendi notunuzu yazın..." style="width:100%;border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:13px;margin-bottom:8px;outline:none">
+              <div style="display:flex;gap:8px;align-items:center">
+                <label style="font-size:12px;color:var(--muted)">Uygulama tarihi:</label>
+                <input id="ms-date" type="date" style="border:1.5px solid var(--line);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px;outline:none">
+                <button class="btn btn-primary btn-sm" onclick="saveMilestone()">Kaydet</button>
+                <button class="btn btn-outline btn-sm" onclick="hideMilestone()">İptal</button>
+              </div>
+              <div id="ms-result" style="margin-top:6px;font-size:12px"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="card mb24">
@@ -1050,21 +1074,107 @@ async function loadTrend(locIds) {
   });
   const labels = Object.keys(weeks).sort();
   const scores = labels.map(w=>Math.round(weeks[w].scores.reduce((a,b)=>a+b,0)/weeks[w].scores.length)||0);
-  const counts  = labels.map(w=>weeks[w].count);
+  const counts = labels.map(w=>weeks[w].count);
+
+  // Milestone'ları çek
+  const { data: milestones } = await sb.from('recommendation_milestones')
+    .select('implemented_at, item_title').eq('brand_id', currentBrandId).order('implemented_at');
+
+  // Milestone'ları haftalara eşle
+  const milestoneMap = {};
+  (milestones||[]).forEach(m => {
+    const d  = new Date(m.implemented_at);
+    const wk = new Date(d.getFullYear(),d.getMonth(),d.getDate()-d.getDay()).toISOString().slice(0,10);
+    if (!milestoneMap[wk]) milestoneMap[wk] = [];
+    milestoneMap[wk].push(m.item_title);
+  });
+
+  // Point stillerini belirle — milestone haftaları farklı renk
+  const pointColors = labels.map(l => milestoneMap[l] ? '#f0a500' : '#1e3a5f');
+  const pointSizes  = labels.map(l => milestoneMap[l] ? 10 : 4);
+
   const ctx = document.getElementById('trend-chart').getContext('2d');
   if (trendChart) trendChart.destroy();
+
   trendChart = new Chart(ctx, {
-    type:'line',
-    data:{labels:labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('tr-TR',{day:'2-digit',month:'short'});}),
-      datasets:[{label:trendMode==='score'?'Skor':'Hacim',data:trendMode==='score'?scores:counts,borderColor:'#1e3a5f',backgroundColor:'rgba(30,58,95,.05)',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#1e3a5f',fill:true,tension:.4}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{min:0,max:trendMode==='score'?100:undefined,grid:{color:'#f3f4f6'},ticks:{font:{family:'Cabinet Grotesk',size:11}}},x:{grid:{display:false},ticks:{font:{family:'Cabinet Grotesk',size:11}}}}}
+    type: 'line',
+    data: {
+      labels: labels.map(l => {
+        const d = new Date(l);
+        const label = d.toLocaleDateString('tr-TR', {day:'2-digit', month:'short'});
+        return milestoneMap[l] ? '⚑ ' + label : label;
+      }),
+      datasets: [{
+        label: trendMode==='score' ? 'Skor' : 'Hacim',
+        data:  trendMode==='score' ? scores : counts,
+        borderColor: '#1e3a5f',
+        backgroundColor: 'rgba(30,58,95,.05)',
+        borderWidth: 2.5,
+        pointRadius: pointSizes,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        fill: true,
+        tension: .4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const idx   = items[0]?.dataIndex;
+              const label = labels[idx];
+              const ms    = milestoneMap[label];
+              if (ms?.length) return ['', '⚑ Uygulanan: ' + ms.join(', ')];
+              return [];
+            }
+          }
+        }
+      },
+      scales: {
+        y: { min:0, max: trendMode==='score'?100:undefined, grid:{color:'#f3f4f6'}, ticks:{font:{family:'Cabinet Grotesk',size:11}} },
+        x: { grid:{display:false}, ticks:{font:{family:'Cabinet Grotesk',size:11}} }
+      }
+    }
   });
+
+  // Milestone listesini güncelle
+  renderMilestoneList(milestones||[], labels, trendMode==='score'?scores:counts);
+}
+
+function renderMilestoneList(milestones, labels, values) {
+  const el = document.getElementById('milestone-list');
+  if (!el) return;
+  if (!milestones.length) { el.innerHTML='<div style="font-size:12px;color:var(--muted)">Henüz uygulanan öneri yok</div>'; return; }
+
+  el.innerHTML = milestones.map(m => {
+    const d   = new Date(m.implemented_at);
+    const wk  = new Date(d.getFullYear(),d.getMonth(),d.getDate()-d.getDay()).toISOString().slice(0,10);
+    const idx = labels.indexOf(wk);
+    const before = idx > 0 ? values[idx-1] : null;
+    const after  = idx >= 0 && idx < values.length-1 ? values[idx+1] : null;
+    const diff   = (before !== null && after !== null) ? after - before : null;
+    const diffHtml = diff !== null
+      ? `<span style="font-size:11px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'}">${diff>=0?'+':''}${diff} puan</span>`
+      : '';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span style="font-size:18px">⚑</span>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${m.item_title}</div>
+        <div style="font-size:11px;color:var(--muted)">${fdate(m.implemented_at)}</div>
+      </div>
+      ${diffHtml}
+    </div>`;
+  }).join('');
 }
 
 function setTrendMode(mode) {
-  trendMode=mode;
-  document.getElementById('btn-trend-score').style.opacity=mode==='score'?'1':'.4';
-  document.getElementById('btn-trend-vol').style.opacity=mode==='volume'?'1':'.4';
+  trendMode = mode;
+  document.getElementById('btn-trend-score').style.opacity = mode==='score' ? '1' : '.4';
+  document.getElementById('btn-trend-vol').style.opacity   = mode==='volume' ? '1' : '.4';
   getLocIds().then(loadTrend);
 }
 
@@ -1383,6 +1493,133 @@ async function triggerSocial() {
   btn.disabled=false; btn.textContent='🔍 Sosyal Medya Çek ve Analiz Et';
 }
 
+// ── MİLESTONE ────────────────────────────────────────────
+async function showAddMilestone() {
+  document.getElementById('milestone-form').style.display = 'block';
+  document.getElementById('ms-date').value = new Date().toISOString().slice(0,10);
+
+  // Mevcut önerileri seçeneğe doldur
+  if (!currentBrandId) return;
+  const { data } = await sb.from('action_recommendations')
+    .select('recommendation_id, content_json, generated_at')
+    .eq('brand_id', currentBrandId)
+    .order('generated_at', { ascending: false }).limit(5);
+
+  const sel = document.getElementById('ms-rec-select');
+  sel.innerHTML = '<option value="">Öneri seç veya manuel girin...</option>';
+  (data||[]).forEach(rec => {
+    const items = [
+      ...(rec.content_json?.urgent  || []),
+      ...(rec.content_json?.medium  || []),
+    ];
+    items.forEach(item => {
+      const o = document.createElement('option');
+      o.value = item.title;
+      o.textContent = item.title;
+      o.dataset.recId = rec.recommendation_id;
+      sel.appendChild(o);
+    });
+  });
+
+  sel.onchange = () => {
+    if (sel.value) document.getElementById('ms-title').value = sel.value;
+  };
+}
+
+function hideMilestone() {
+  document.getElementById('milestone-form').style.display = 'none';
+  document.getElementById('ms-title').value = '';
+  document.getElementById('ms-result').textContent = '';
+}
+
+async function saveMilestone() {
+  const title  = document.getElementById('ms-title').value.trim() || document.getElementById('ms-rec-select').value;
+  const date   = document.getElementById('ms-date').value;
+  const el     = document.getElementById('ms-result');
+  const sel    = document.getElementById('ms-rec-select');
+  const recId  = sel.selectedOptions[0]?.dataset?.recId || null;
+
+  if (!title) { el.textContent = '⚠ Başlık giriniz'; el.style.color='var(--red)'; return; }
+  if (!date)  { el.textContent = '⚠ Tarih seçiniz';  el.style.color='var(--red)'; return; }
+  if (!currentBrandId) return;
+
+  // Uygulama tarihindeki skoru bul
+  const { data: reviews } = await sb.from('reviews').select('review_id')
+    .in('location_id', allLocations.map(l=>l.location_id))
+    .lte('review_date', date).order('review_date', { ascending: false }).limit(50);
+  let scoreBefore = null;
+  if (reviews?.length) {
+    const { data: analyses } = await sb.from('review_analysis')
+      .select('sentiment_score').in('review_id', reviews.map(r=>r.review_id));
+    if (analyses?.length) scoreBefore = Math.round(analyses.reduce((s,a)=>s+(a.sentiment_score||0),0)/analyses.length);
+  }
+
+  const { data: usr } = await sb.from('users').select('user_id').eq('email', currentUser?.email).maybeSingle();
+
+  const { error } = await sb.from('recommendation_milestones').insert({
+    brand_id:         currentBrandId,
+    recommendation_id: recId || null,
+    item_title:       title,
+    implemented_at:   date,
+    created_by:       usr?.user_id || null,
+    score_before:     scoreBefore,
+  });
+
+  if (error) { el.textContent = '✗ ' + error.message; el.style.color='var(--red)'; return; }
+  el.textContent = '✓ Kaydedildi'; el.style.color = 'var(--green)';
+  setTimeout(() => {
+    hideMilestone();
+    getLocIds().then(loadTrend);
+  }, 600);
+}
+
+// renderRecommendations'a "Uyguladım" butonu ekle
+function renderRecommendations(content) {
+  const el = document.getElementById('rec-body');
+  if (!content) { el.innerHTML = '<div class="empty">Öneri yok</div>'; return; }
+
+  const sections = [
+    { key: 'urgent',   label: '🔴 Bu Hafta Yapılmalı',  color: 'var(--red)',   bg: 'var(--red-bg)' },
+    { key: 'medium',   label: '🟡 Bu Ay Yapılmalı',     color: 'var(--amber)', bg: 'var(--amber-bg)' },
+    { key: 'positive', label: '🟢 İyi Gidiyor',         color: 'var(--green)', bg: 'var(--green-bg)' },
+  ];
+
+  let html = '';
+  if (content.summary) {
+    html += `<div style="background:var(--bg);border-radius:8px;padding:14px;margin-bottom:20px;font-size:14px;color:var(--ink2);line-height:1.7;border-left:4px solid var(--navy)">${content.summary}</div>`;
+  }
+
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">';
+  for (const sec of sections) {
+    const items = content[sec.key] || [];
+    html += `<div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${sec.color};margin-bottom:10px">${sec.label}</div>
+      ${items.length ? items.map(item => `
+        <div style="background:${sec.bg};border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:4px">${item.title}</div>
+          <div style="font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:6px">${item.detail}</div>
+          ${item.metric ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-bottom:8px">${item.metric}</div>` : ''}
+          ${sec.key !== 'positive' ? `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 10px"
+            onclick="quickMilestone('${item.title.replace(/'/g,"\\'")}')">⚑ Uyguladım</button>` : ''}
+        </div>
+      `).join('') : `<div style="font-size:12px;color:var(--muted);padding:8px">—</div>`}
+    </div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function quickMilestone(title) {
+  // Trenddeki forma prefill edip göster
+  goTab('overview');
+  setTimeout(() => {
+    document.getElementById('ms-title').value = title;
+    document.getElementById('ms-date').value  = new Date().toISOString().slice(0,10);
+    document.getElementById('milestone-form').style.display = 'block';
+    document.getElementById('milestone-form').scrollIntoView({ behavior: 'smooth' });
+  }, 300);
+}
+
 // ── AKSİYON ÖNERİLERİ ────────────────────────────────────
 async function loadRecommendations() {
   const el  = document.getElementById('rec-body');
@@ -1410,42 +1647,6 @@ async function loadRecommendations() {
   } catch(e) {
     el.innerHTML = `<div class="empty">Bağlantı hatası</div>`;
   }
-}
-
-function renderRecommendations(content) {
-  const el = document.getElementById('rec-body');
-  if (!content) { el.innerHTML = '<div class="empty">Öneri yok</div>'; return; }
-
-  const sections = [
-    { key: 'urgent',   label: '🔴 Bu Hafta Yapılmalı',  color: 'var(--red)',   bg: 'var(--red-bg)' },
-    { key: 'medium',   label: '🟡 Bu Ay Yapılmalı',     color: 'var(--amber)', bg: 'var(--amber-bg)' },
-    { key: 'positive', label: '🟢 İyi Gidiyor',         color: 'var(--green)', bg: 'var(--green-bg)' },
-  ];
-
-  let html = '';
-
-  if (content.summary) {
-    html += `<div style="background:var(--bg);border-radius:8px;padding:14px;margin-bottom:20px;font-size:14px;color:var(--ink2);line-height:1.7;border-left:4px solid var(--navy)">
-      ${content.summary}
-    </div>`;
-  }
-
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">';
-  for (const sec of sections) {
-    const items = content[sec.key] || [];
-    html += `<div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${sec.color};margin-bottom:10px">${sec.label}</div>
-      ${items.length ? items.map(item => `
-        <div style="background:${sec.bg};border-radius:8px;padding:12px;margin-bottom:8px">
-          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:4px">${item.title}</div>
-          <div style="font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:6px">${item.detail}</div>
-          ${item.metric ? `<div style="font-size:11px;color:var(--muted);font-style:italic">${item.metric}</div>` : ''}
-        </div>
-      `).join('') : `<div style="font-size:12px;color:var(--muted);padding:8px">—</div>`}
-    </div>`;
-  }
-  html += '</div>';
-  el.innerHTML = html;
 }
 
 async function refreshRecommendations() {
