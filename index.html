@@ -363,7 +363,7 @@ td{padding:11px 13px;font-size:13px}
         </div>
         <div class="card-body">
           <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
-          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+          <div class="saas-full-only" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">⚑ Uygulanan Öneriler</div>
               <button class="btn btn-outline btn-sm" onclick="showAddMilestone()">+ Uygulama Ekle</button>
@@ -405,7 +405,7 @@ td{padding:11px 13px;font-size:13px}
       </div>
 
       <!-- AKSİYON ÖNERİLERİ -->
-      <div class="card" style="margin-top:20px" id="recommendations-card">
+      <div class="card saas-full-only" style="margin-top:20px" id="recommendations-card">
         <div class="card-header">
           <span class="card-title">⚡ Aksiyon Önerileri</span>
           <div style="display:flex;align-items:center;gap:10px">
@@ -1495,6 +1495,8 @@ async function triggerSocial() {
 
 // ── MİLESTONE ────────────────────────────────────────────
 async function showAddMilestone() {
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  if (!isSaasFull) return;
   document.getElementById('milestone-form').style.display = 'block';
   document.getElementById('ms-date').value = new Date().toISOString().slice(0,10);
 
@@ -1624,6 +1626,12 @@ async function quickMilestone(title) {
 async function loadRecommendations() {
   const el  = document.getElementById('rec-body');
   const upd = document.getElementById('rec-updated');
+  if (!el) return;
+
+  // SaaS Full kontrolü
+  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  if (!isSaasFull) return;
+
   if (!currentBrandId || !_svc?.analysis || !_svc?.secret) {
     el.innerHTML = '<div class="empty">Servis yapılandırılmamış</div>'; return;
   }
