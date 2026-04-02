@@ -1517,25 +1517,12 @@ async function openLoc(locId, name, lat, lng) {
 }
 
 async function loadNearbyCompetitors(locId, locName, lat, lng) {
-  // Rakip lokasyonlarını çek
-  const { data: competitors } = await sb.from('competitor_brands')
-    .select('brands(brand_id, name)').eq('customer_id', currentCustomer.customer_id);
-  if (!competitors?.length) return;
+  // Global rakip listesini getir
+  const { data: globalComps } = await sb.from('brands')
+    .select('brand_id, name').eq('is_phantom', true).order('name');
 
-  const compBrandIds = competitors.map(c => c.brands?.brand_id).filter(Boolean);
-  const { data: compLocs } = await sb.from('locations')
-    .select('location_id, name, address, lat, lng, brand_id, brands(name)')
-    .in('brand_id', compBrandIds).eq('location_type', 'branch');
+  if (!globalComps?.length) return;
 
-  // 500m içindekileri filtrele
-  const nearby = (compLocs||[]).filter(cl => {
-    if (!cl.lat || !cl.lng) return false;
-    return haversine(lat, lng, cl.lat, cl.lng) <= 0.5;
-  });
-
-  if (!nearby.length) return;
-
-  // Detay paneline nearby bölümünü ekle
   let nearbyEl = document.getElementById('nearby-competitors');
   if (!nearbyEl) {
     nearbyEl = document.createElement('div');
@@ -1545,46 +1532,129 @@ async function loadNearbyCompetitors(locId, locName, lat, lng) {
 
   nearbyEl.innerHTML = `
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)">
-      <div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:12px">
-        🆚 Bu şubeye yakın ${nearby.length} rakip var (500m içinde)
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">🆚 Rakip Analizi</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Hangi rakipleri bu şubeyle karşılaştırmak istersiniz?</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        ${globalComps.map(c => `
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:1.5px solid var(--line);border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s" id="comp-label-${c.brand_id}">
+            <input type="checkbox" value="${c.brand_id}" data-name="${c.name}"
+              style="cursor:pointer"
+              onchange="toggleCompetitorLabel('${c.brand_id}')">
+            ${c.name}
+          </label>
+        `).join('')}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px" id="nearby-grid">
-        <div class="empty"><span class="spinner"></span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="comp-radius-sel" style="border:1.5px solid var(--line);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:12px;outline:none">
+          <option value="500">500m</option>
+          <option value="1000">1km</option>
+          <option value="2000">2km</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="runNearbySearch('${locId}',${lat},${lng})">
+          🔍 Yakın Şubeleri Ara ve Karşılaştır
+        </button>
       </div>
+      <div id="nearby-results" style="margin-top:14px"></div>
     </div>`;
+}
 
-  // Her yakın rakibin skorunu hesapla
-  const grid = document.getElementById('nearby-grid');
-  const myRevs = await sb.from('reviews').select('review_id').eq('location_id', locId);
-  const myIds  = (myRevs.data||[]).map(r=>r.review_id);
-  const myAnalyses = myIds.length ? (await sb.from('review_analysis').select('sentiment_score').in('review_id', myIds)).data || [] : [];
-  const myScore = myAnalyses.length ? Math.round(myAnalyses.reduce((s,a)=>s+(a.sentiment_score||0),0)/myAnalyses.length) : null;
+function toggleCompetitorLabel(brandId) {
+  const label = document.getElementById(`comp-label-${brandId}`);
+  const cb    = label?.querySelector('input');
+  if (label) {
+    label.style.borderColor    = cb?.checked ? 'var(--navy)' : 'var(--line)';
+    label.style.backgroundColor = cb?.checked ? '#f0f4ff' : '';
+    label.style.color           = cb?.checked ? 'var(--navy)' : '';
+  }
+}
 
-  const cards = await Promise.all(nearby.map(async cl => {
-    const { data: revs } = await sb.from('reviews').select('review_id').eq('location_id', cl.location_id);
-    const rids = (revs||[]).map(r=>r.review_id);
-    let score = null;
-    if (rids.length) {
-      const { data: an } = await sb.from('review_analysis').select('sentiment_score').in('review_id', rids);
-      score = an?.length ? Math.round(an.reduce((s,a)=>s+(a.sentiment_score||0),0)/an.length) : null;
-    }
-    const dist = Math.round(haversine(lat, lng, cl.lat, cl.lng) * 1000);
-    const diff = (myScore !== null && score !== null) ? score - myScore : null;
-    const diffHtml = diff !== null
-      ? `<div style="font-size:11px;font-weight:700;color:${diff<=0?'var(--green)':'var(--red)'}">
-           ${diff<=0?'▼ Sizin altınızda':'▲ Sizin üstünüzde'} (${diff>0?'+':''}${diff})
-         </div>`
-      : '';
-    return `<div style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px">
-      <div style="font-size:12px;font-weight:700;margin-bottom:2px">${cl.brands?.name||'—'}</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${cl.name} · ${dist}m</div>
-      <div style="font-family:'Fraunces',serif;font-size:28px;color:${scoreColor(score||0)}">${score??'—'}</div>
-      ${diffHtml}
-      ${!rids.length ? '<div style="font-size:11px;color:var(--muted)">Veri yok — çekim gerekli</div>' : ''}
+async function runNearbySearch(myLocId, lat, lng) {
+  const el     = document.getElementById('nearby-results');
+  const radius = parseInt(document.getElementById('comp-radius-sel').value);
+  const checked = document.querySelectorAll('#nearby-competitors input[type=checkbox]:checked');
+  const selected = Array.from(checked).map(cb => ({ brand_id: cb.value, name: cb.dataset.name }));
+
+  if (!selected.length) { el.innerHTML='<div style="font-size:12px;color:var(--amber)">⚠ En az bir rakip seçin</div>'; return; }
+
+  el.innerHTML='<div class="empty"><span class="spinner"></span> Yakın şubeler aranıyor...</div>';
+
+  const { data: settings } = await sb.from('system_settings').select('key,value');
+  const m = {}; (settings||[]).forEach(r => m[r.key]=r.value);
+  const gmapsUrl  = m['gmaps_url']  || '';
+  const appSecret = m['app_secret'] || '';
+
+  if (!gmapsUrl) { el.innerHTML='<div style="font-size:12px;color:var(--red)">⚠ Google Maps servisi yapılandırılmamış</div>'; return; }
+
+  // Kendi şubemizin skoru
+  const { data: myRevs } = await sb.from('reviews').select('review_id').eq('location_id', myLocId);
+  const myIds = (myRevs||[]).map(r=>r.review_id);
+  const myAn  = myIds.length ? (await sb.from('review_analysis').select('sentiment_score').in('review_id', myIds)).data||[] : [];
+  const myScore = myAn.length ? Math.round(myAn.reduce((s,a)=>s+(a.sentiment_score||0),0)/myAn.length) : null;
+
+  const cards = [];
+
+  for (const comp of selected) {
+    try {
+      const resp = await fetch(
+        `${gmapsUrl.replace(/\/$/,'')}/search?q=${encodeURIComponent(comp.name)}&lat=${lat}&lng=${lng}&radius=${radius}&secret=${encodeURIComponent(appSecret)}`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const results = (data.results||[]);
+
+      if (!results.length) {
+        cards.push(`<div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--line)">
+          <div style="font-size:13px;font-weight:700">${comp.name}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">${radius}m içinde şube bulunamadı</div>
+        </div>`);
+        continue;
+      }
+
+      for (const r of results.slice(0,3)) {
+        // Bu yer veritabanında var mı — skor çek
+        const { data: existingLoc } = await sb.from('locations')
+          .select('location_id').eq('google_place_id', r.place_id).maybeSingle();
+
+        let score = null, reviewCount = 0;
+        if (existingLoc) {
+          const { data: rv } = await sb.from('reviews').select('review_id').eq('location_id', existingLoc.location_id);
+          const rvIds = (rv||[]).map(x=>x.review_id);
+          if (rvIds.length) {
+            const { data: an } = await sb.from('review_analysis').select('sentiment_score').in('review_id', rvIds);
+            reviewCount = an?.length||0;
+            if (reviewCount) score = Math.round(an.reduce((s,a)=>s+(a.sentiment_score||0),0)/reviewCount);
+          }
+        }
+
+        const dist = (r.lat && r.lng) ? Math.round(haversine(lat, lng, r.lat, r.lng)*1000) : '?';
+        const diff = (myScore && score) ? myScore - score : null;
+        const diffHtml = diff !== null
+          ? `<div style="font-size:11px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'}">
+               ${diff>=0?`▲ ${diff} puan önde`:`▼ ${Math.abs(diff)} puan geride`}
+             </div>`
+          : (!existingLoc ? '<div style="font-size:11px;color:var(--amber)">Veri yok — çekim gerekli</div>' : '');
+
+        cards.push(`
+          <div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:2px">${comp.name}</div>
+            <div style="font-size:14px;font-weight:700;margin-bottom:4px">${r.name}</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${r.address||'—'} · ${dist}m</div>
+            <div style="font-family:'Fraunces',serif;font-size:32px;color:${scoreColor(score||0)};line-height:1;margin-bottom:4px">${score??'—'}</div>
+            <div style="font-size:11px;color:var(--muted)">${reviewCount} analiz</div>
+            ${diffHtml}
+            ${r.rating ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">★ ${r.rating} (Google)</div>` : ''}
+          </div>`);
+      }
+    } catch(e) { continue; }
+  }
+
+  if (!cards.length) { el.innerHTML='<div class="empty">Sonuç bulunamadı</div>'; return; }
+
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">${cards.join('')}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">
+      * Sentimen skoru sistemdeki verilerden hesaplanır. Veri yoksa Google Maps puanı referans alınabilir.
     </div>`;
-  }));
-
-  grid.innerHTML = cards.join('');
 }
 
 function closeLoc() {
