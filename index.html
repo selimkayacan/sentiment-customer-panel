@@ -567,6 +567,27 @@ td{padding:11px 13px;font-size:13px}
         </div>
 
         <div class="param-group">
+          <div class="param-title">Tarih Aralığı</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--muted)">Başlangıç</label>
+              <input type="date" id="gmaps-date-from" style="border:1.5px solid var(--line);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none">
+            </div>
+            <span style="color:var(--muted)">—</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--muted)">Bitiş</label>
+              <input type="date" id="gmaps-date-to" style="border:1.5px solid var(--line);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none">
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('gmaps','1y')">Son 1 Yıl</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('gmaps','6m')">Son 6 Ay</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('gmaps','all')">Tümü</button>
+          </div>
+          <div class="fg-hint" style="margin-top:6px;font-size:11px;color:var(--muted)">
+            Google Maps en güncel 5 yorumu döndürür. Bu tarih aralığı dışındaki yorumlar kaydedilmez.
+          </div>
+        </div>
+
+        <div class="param-group">
           <div class="param-title">Güvenilirlik Kriterleri</div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <div>
@@ -607,6 +628,27 @@ td{padding:11px 13px;font-size:13px}
       <div class="action-section">
         <div class="action-section-title">🔍 Sosyal Medya & Dijital Çekim</div>
         <div class="action-section-sub">Tüm dijital kanallardan bahsedilmeleri çekin ve analiz edin.</div>
+
+        <div class="param-group">
+          <div class="param-title">Tarih Aralığı</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--muted)">Başlangıç</label>
+              <input type="date" id="social-date-from" style="border:1.5px solid var(--line);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none">
+            </div>
+            <span style="color:var(--muted)">—</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--muted)">Bitiş</label>
+              <input type="date" id="social-date-to" style="border:1.5px solid var(--line);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none">
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('social','1y')">Son 1 Yıl</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('social','6m')">Son 6 Ay</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('social','1m')">Son 1 Ay</button>
+          </div>
+          <div class="fg-hint" style="margin-top:6px;font-size:11px;color:var(--muted)">
+            Twitter için after:/before: operatörleri kullanılır. Bu aralık dışındaki içerikler analiz edilmez.
+          </div>
+        </div>
 
         <div class="param-group">
           <div class="param-title">Aktif Kanallar</div>
@@ -859,6 +901,7 @@ async function afterLogin() {
   await loadBrands();
   await loadSystemSettings();
   await loadMeta();
+  initDateDefaults();
   reload();
 
   if (isManager && !currentBrandId) goTab('actions');
@@ -953,6 +996,8 @@ async function loadMeta() {
 
   // Mevcut alias'ları yükle (keywords)
   await loadAliases();
+  // Kaydedilmiş güvenilirlik parametrelerini yükle
+  await loadReliabilityParams();
 
   await loadPeriods();
 }
@@ -1799,16 +1844,102 @@ async function loadCatPage() {
   tbody.innerHTML=cats.sort((a,b)=>{const ta=catMap[a],tb=catMap[b];return(tb.neg/(tb.pos+tb.neg+tb.neu||1))-(ta.neg/(ta.pos+ta.neg+ta.neu||1));}).map(n=>{const c=catMap[n],total=c.pos+c.neg+c.neu||1,score=Math.round(c.pos/total*100);const st=score>=60?'<span class="badge badge-pos">İyi</span>':score>=40?'<span style="background:var(--amber-bg);color:var(--amber);padding:3px 10px;border-radius:16px;font-size:11px;font-weight:700">Orta</span>':'<span class="badge badge-neg">Dikkat</span>';return`<tr><td><strong>${n}</strong></td><td>${total}</td><td style="color:var(--green)">${c.pos}</td><td style="color:var(--red)">${c.neg}</td><td><strong style="color:${scoreColor(score)}">${score}/100</strong></td><td>${st}</td></tr>`;}).join('');
 }
 
+// ── TARİH ARALIGI ────────────────────────────────────────
+function setDatePreset(prefix, preset) {
+  const today = new Date().toISOString().slice(0,10);
+  const fromEl = document.getElementById(`${prefix}-date-from`);
+  const toEl   = document.getElementById(`${prefix}-date-to`);
+  if (!fromEl || !toEl) return;
+  toEl.value = today;
+  if (preset === 'all')  { fromEl.value = '2020-01-01'; }
+  else if (preset === '1y') { const d=new Date(); d.setFullYear(d.getFullYear()-1); fromEl.value=d.toISOString().slice(0,10); }
+  else if (preset === '6m') { const d=new Date(); d.setMonth(d.getMonth()-6); fromEl.value=d.toISOString().slice(0,10); }
+  else if (preset === '1m') { const d=new Date(); d.setMonth(d.getMonth()-1); fromEl.value=d.toISOString().slice(0,10); }
+}
+
+// Sayfa açılınca varsayılan tarihleri ayarla
+function initDateDefaults() {
+  const today = new Date().toISOString().slice(0,10);
+  const oneYearAgo = new Date(); oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
+  const oneYearStr = oneYearAgo.toISOString().slice(0,10);
+  ['gmaps','social'].forEach(p => {
+    const f = document.getElementById(`${p}-date-from`);
+    const t = document.getElementById(`${p}-date-to`);
+    if (f && !f.value) f.value = oneYearStr;
+    if (t && !t.value) t.value = today;
+  });
+}
+
 // ── ACTIONS: PARAMS ───────────────────────────────────────
 const params = {};
-function setParam(btn) {
+const GMAPS_CONN_KEY = 'google_maps';
+
+async function setParam(btn) {
   event.stopPropagation();
   const key = btn.dataset.key, val = btn.dataset.val;
   params[key] = val;
-  btn.closest('.param-options').querySelectorAll('.param-opt').forEach(b=>{b.classList.remove('active','warn','ignore');});
+  btn.closest('.param-options').querySelectorAll('.param-opt').forEach(b => {
+    b.classList.remove('active','warn','ignore');
+  });
   btn.classList.add('active');
   if (val==='low')    btn.classList.add('warn');
   if (val==='ignore') btn.classList.add('ignore');
+
+  // Parametreyi reliability_factors tablosuna kaydet
+  await saveReliabilityParam(key, val);
+}
+
+async function saveReliabilityParam(factorKey, val) {
+  if (!currentCustomer) return;
+  const conn = allConnectors.find(c => c.key === GMAPS_CONN_KEY);
+  if (!conn) return;
+
+  const weightMap = { normal: 1.0, high: 1.5, low: 0.4, ignore: 0.0 };
+  const weight = weightMap[val] ?? 1.0;
+  const enabled = val !== 'ignore';
+
+  await sb.from('reliability_factors').upsert({
+    customer_id:  currentCustomer.customer_id,
+    connector_id: conn.connector_id,
+    factor_key:   factorKey,
+    weight:       weight,
+    enabled:      enabled,
+  }, { onConflict: 'customer_id,connector_id,factor_key' });
+}
+
+async function loadReliabilityParams() {
+  if (!currentCustomer) return;
+  const conn = allConnectors.find(c => c.key === 'google_maps');
+  if (!conn) return;
+
+  const { data } = await sb.from('reliability_factors')
+    .select('factor_key, weight, enabled')
+    .eq('customer_id', currentCustomer.customer_id)
+    .eq('connector_id', conn.connector_id);
+
+  if (!data?.length) return;
+
+  const weightToVal = (w, enabled) => {
+    if (!enabled) return 'ignore';
+    if (w >= 1.4) return 'high';
+    if (w <= 0.5) return 'low';
+    return 'normal';
+  };
+
+  data.forEach(f => {
+    const val = weightToVal(f.weight, f.enabled);
+    params[f.factor_key] = val;
+    // UI butonlarını güncelle
+    const btns = document.querySelectorAll(`[data-key="${f.factor_key}"]`);
+    btns.forEach(btn => {
+      btn.classList.remove('active','warn','ignore');
+      if (btn.dataset.val === val) {
+        btn.classList.add('active');
+        if (val === 'low')    btn.classList.add('warn');
+        if (val === 'ignore') btn.classList.add('ignore');
+      }
+    });
+  });
 }
 
 // ── ACTIONS: KEYWORDS ─────────────────────────────────────
@@ -1866,12 +1997,26 @@ async function triggerGmaps() {
   const btn = document.getElementById('btn-gmaps-fetch');
   const el  = document.getElementById('gmaps-result');
   if (!_svc?.gmaps || !_svc?.secret) { el.textContent='⚠ Google Maps connector yapılandırılmamış'; el.style.color='var(--amber)'; return; }
+
+  const dateFrom = document.getElementById('gmaps-date-from')?.value;
+  const dateTo   = document.getElementById('gmaps-date-to')?.value;
+  if (!dateFrom || !dateTo) { el.textContent='⚠ Tarih aralığı seçin'; el.style.color='var(--amber)'; return; }
+
   btn.disabled=true; btn.textContent='⏳ Çekiliyor...';
-  el.textContent='Google Maps yorumları çekiliyor...'; el.style.color='var(--muted)';
+  el.textContent=`${dateFrom} — ${dateTo} arası yorumlar çekiliyor...`; el.style.color='var(--muted)';
   try {
-    await fetch(`${_svc.gmaps.replace(/\/$/,'')}/fetch`,{method:'POST',headers:{'X-App-Secret':_svc.secret},signal:AbortSignal.timeout(120000)});
+    const locId = document.getElementById('gmaps-loc-select').value;
+    const body  = { date_from: dateFrom, date_to: dateTo };
+    if (locId !== 'all') body.location_id = locId;
+    await fetch(`${_svc.gmaps.replace(/\/$/,'')}/fetch`, {
+      method:'POST', headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+      body: JSON.stringify(body), signal:AbortSignal.timeout(120000)
+    });
     el.textContent='✓ Çekildi! Analiz başlatılıyor...';
-    if (_svc.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`,{method:'POST',headers:{'X-App-Secret':_svc.secret},signal:AbortSignal.timeout(300000)});
+    if (_svc.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
+      method:'POST', headers:{'X-App-Secret':_svc.secret},
+      signal:AbortSignal.timeout(300000)
+    });
     el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
     reload();
   } catch(e) { el.textContent='✗ '+e.message; el.style.color='var(--red)'; }
@@ -1884,22 +2029,34 @@ async function triggerSocial() {
   const sources = Object.entries(activeSources).filter(([k,v])=>v).map(([k])=>k);
   if (!sources.length) { el.textContent='⚠ En az bir kanal seçin'; el.style.color='var(--amber)'; return; }
 
+  const dateFrom = document.getElementById('social-date-from')?.value;
+  const dateTo   = document.getElementById('social-date-to')?.value;
+  if (!dateFrom || !dateTo) { el.textContent='⚠ Tarih aralığı seçin'; el.style.color='var(--amber)'; return; }
+
   btn.disabled=true; btn.textContent='⏳ Çekiliyor...';
   let done = 0;
 
   for (const src of sources) {
     const url = src==='twitter' ? _svc?.twitter : _svc?.eksi;
     if (!url || !_svc?.secret) continue;
-    el.textContent=`⏳ ${src==='twitter'?'Twitter':'Ekşi'} çekiliyor...`; el.style.color='var(--muted)';
+    el.textContent=`⏳ ${src==='twitter'?'Twitter':'Ekşi'} çekiliyor (${dateFrom} — ${dateTo})...`; el.style.color='var(--muted)';
     try {
-      await fetch(`${url.replace(/\/$/,'')}/fetch`,{method:'POST',headers:{'X-App-Secret':_svc.secret},signal:AbortSignal.timeout(120000)});
+      await fetch(`${url.replace(/\/$/,'')}/fetch`, {
+        method:'POST',
+        headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
+        signal:AbortSignal.timeout(120000)
+      });
       done++;
     } catch(e) { el.textContent=`✗ ${src}: ${e.message}`; }
   }
 
   if (done > 0) {
     el.textContent='✓ Çekildi! Analiz başlatılıyor...';
-    if (_svc?.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`,{method:'POST',headers:{'X-App-Secret':_svc.secret},signal:AbortSignal.timeout(300000)});
+    if (_svc?.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
+      method:'POST', headers:{'X-App-Secret':_svc.secret},
+      signal:AbortSignal.timeout(300000)
+    });
     el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
     reload();
   }
