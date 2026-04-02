@@ -1036,6 +1036,20 @@ function goTab(tab) {
   }
 }
 
+// ── CHUNKED SORGU YARDIMCISI ─────────────────────────────
+// Supabase URL limiti aşmasın diye büyük ID listelerini parçalar
+async function sbChunkedIn(table, select, col, ids, extraFilters = {}, chunkSize = 12) {
+  const results = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    let q = sb.from(table).select(select).in(col, chunk);
+    for (const [k, v] of Object.entries(extraFilters)) q = q.eq(k, v);
+    const { data } = await q;
+    if (data) results.push(...data);
+  }
+  return results;
+}
+
 // ── HELPERS ──────────────────────────────────────────────
 async function getLocIds(typeFilter = null) {
   if (!currentBrandId) return [];
@@ -1086,8 +1100,8 @@ async function loadOverview() {
     return;
   }
 
-  const { data: analyses } = await sb.from('review_analysis')
-    .select('overall_sentiment, sentiment_score').in('review_id', revIds);
+  const analyses = await sbChunkedIn('review_analysis',
+    'overall_sentiment, sentiment_score', 'review_id', revIds);
   const all = analyses||[];
   const total = all.length, pos = all.filter(a=>a.overall_sentiment==='positive').length;
   const neg = all.filter(a=>a.overall_sentiment==='negative').length;
@@ -1265,8 +1279,9 @@ function setTrendMode(mode) {
 async function loadCatTags(revIds, containerId='cat-tags') {
   const el = document.getElementById(containerId);
   if (!revIds.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
-  const { data } = await sb.from('review_category_analysis')
-    .select('category_id, sentiment, present, categories(name)').in('review_id', revIds.slice(0,500)).eq('present', true);
+  const data = await sbChunkedIn('review_category_analysis',
+    'category_id, sentiment, present, categories(name)',
+    'review_id', revIds.slice(0,100), { present: true });
   const catMap = {};
   (data||[]).forEach(r => {
     const name=r.categories?.name||r.category_id;
@@ -1296,13 +1311,16 @@ async function loadBestWorst(revIds) {
 async function loadRevList(containerId, revIds, sent, limit, asc) {
   const el = document.getElementById(containerId);
   if (!revIds.length) { el.innerHTML='<div class="empty">Yorum yok</div>'; return; }
-  const { data: analyses } = await sb.from('review_analysis')
-    .select('review_id, sentiment_score').in('review_id', revIds).eq('overall_sentiment', sent).order('sentiment_score',{ascending:asc}).limit(limit);
-  if (!analyses?.length) { el.innerHTML='<div class="empty">Yorum yok</div>'; return; }
-  const { data: reviews } = await sb.from('reviews').select('review_id, review_text, review_date, source_url, connector_id, location_id').in('review_id', analyses.map(a=>a.review_id));
+  const analyses = await sbChunkedIn('review_analysis',
+    'review_id, sentiment_score', 'review_id', revIds,
+    { overall_sentiment: sent });
+  const sorted = analyses.sort((a,b) => asc ? a.sentiment_score-b.sentiment_score : b.sentiment_score-a.sentiment_score).slice(0,limit);
+  if (!sorted.length) { el.innerHTML='<div class="empty">Yorum yok</div>'; return; }
+  const reviews = await sbChunkedIn('reviews',
+    'review_id, review_text, review_date, source_url, connector_id, location_id',
+    'review_id', sorted.map(a=>a.review_id));
   const rMap={}; (reviews||[]).forEach(r=>rMap[r.review_id]=r);
-  const aMap={}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
-  el.innerHTML = analyses.map(a => {
+  el.innerHTML = sorted.map(a => {
     const r=rMap[a.review_id]||{};
     const cls=sent==='positive'?'pos':'neg';
     return `<div class="review-card ${sent}">
