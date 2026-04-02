@@ -1582,6 +1582,7 @@ async function runNearbySearch(myLocId, lat, lng) {
   const m = {}; (settings||[]).forEach(r => m[r.key]=r.value);
   const gmapsUrl  = m['gmaps_url']  || '';
   const appSecret = m['app_secret'] || '';
+  const analysisUrl = m['analysis_url'] || '';
 
   if (!gmapsUrl) { el.innerHTML='<div style="font-size:12px;color:var(--red)">⚠ Google Maps servisi yapılandırılmamış</div>'; return; }
 
@@ -1611,13 +1612,21 @@ async function runNearbySearch(myLocId, lat, lng) {
         continue;
       }
 
-      for (const r of results.slice(0,3)) {
-        // Bu yer veritabanında var mı — skor çek
+      for (const r of results.slice(0,2)) {
+        const dist = (r.lat && r.lng) ? Math.round(haversine(lat, lng, r.lat, r.lng)*1000) : '?';
+
+        // Veritabanında bu place_id var mı?
         const { data: existingLoc } = await sb.from('locations')
           .select('location_id').eq('google_place_id', r.place_id).maybeSingle();
 
-        let score = null, reviewCount = 0;
+        let score = null, reviewCount = 0, lastFetch = null;
+
         if (existingLoc) {
+          // location_connectors'tan son çekim tarihini al
+          const { data: lc } = await sb.from('location_connectors')
+            .select('last_fetched_at').eq('location_id', existingLoc.location_id).maybeSingle();
+          lastFetch = lc?.last_fetched_at;
+
           const { data: rv } = await sb.from('reviews').select('review_id').eq('location_id', existingLoc.location_id);
           const rvIds = (rv||[]).map(x=>x.review_id);
           if (rvIds.length) {
@@ -1627,34 +1636,138 @@ async function runNearbySearch(myLocId, lat, lng) {
           }
         }
 
-        const dist = (r.lat && r.lng) ? Math.round(haversine(lat, lng, r.lat, r.lng)*1000) : '?';
         const diff = (myScore && score) ? myScore - score : null;
-        const diffHtml = diff !== null
-          ? `<div style="font-size:11px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'}">
-               ${diff>=0?`▲ ${diff} puan önde`:`▼ ${Math.abs(diff)} puan geride`}
-             </div>`
-          : (!existingLoc ? '<div style="font-size:11px;color:var(--amber)">Veri yok — çekim gerekli</div>' : '');
+        const today = new Date().toISOString().slice(0,10);
+        const oneYearAgo = new Date(); oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
+        const defaultFrom = oneYearAgo.toISOString().slice(0,10);
+        const cardId = `comp-card-${r.place_id.replace(/[^a-z0-9]/gi,'_')}`;
 
         cards.push(`
-          <div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px">
-            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:2px">${comp.name}</div>
-            <div style="font-size:14px;font-weight:700;margin-bottom:4px">${r.name}</div>
+          <div id="${cardId}" style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:2px">${comp.name}</div>
+            <div style="font-size:14px;font-weight:700;margin-bottom:2px">${r.name}</div>
             <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${r.address||'—'} · ${dist}m</div>
-            <div style="font-family:'Fraunces',serif;font-size:32px;color:${scoreColor(score||0)};line-height:1;margin-bottom:4px">${score??'—'}</div>
-            <div style="font-size:11px;color:var(--muted)">${reviewCount} analiz</div>
-            ${diffHtml}
-            ${r.rating ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">★ ${r.rating} (Google)</div>` : ''}
+
+            ${score !== null ? `
+              <div style="font-family:'Fraunces',serif;font-size:32px;color:${scoreColor(score)};line-height:1;margin-bottom:4px">${score}</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${reviewCount} analiz</div>
+              ${diff !== null ? `<div style="font-size:12px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'};margin-bottom:8px">
+                ${diff>=0?`▲ ${diff} puan önde`:`▼ ${Math.abs(diff)} puan geride`}
+              </div>` : ''}
+              ${lastFetch ? `<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Son çekim: ${fdate(lastFetch)}</div>` : ''}
+            ` : `
+              <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Henüz veri çekilmemiş</div>
+            `}
+
+            ${r.rating ? `<div style="font-size:11px;color:var(--amber);margin-bottom:10px">★ ${r.rating} (Google)</div>` : ''}
+
+            <div style="border-top:1px solid var(--line);padding-top:10px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tarih aralığı:</div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <input type="date" id="comp-from-${cardId}" value="${defaultFrom}"
+                  style="border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:11px;font-family:inherit;outline:none">
+                <span style="font-size:11px;color:var(--muted)">—</span>
+                <input type="date" id="comp-to-${cardId}" value="${today}"
+                  style="border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:11px;font-family:inherit;outline:none">
+                <button class="btn btn-primary btn-sm" style="font-size:11px"
+                  onclick="fetchCompetitorData('${r.place_id}','${comp.name}','${r.name}',${r.lat||0},${r.lng||0},'${cardId}')">
+                  📥 Çek
+                </button>
+              </div>
+            </div>
           </div>`);
       }
     } catch(e) { continue; }
   }
 
   if (!cards.length) { el.innerHTML='<div class="empty">Sonuç bulunamadı</div>'; return; }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">${cards.join('')}</div>`;
+}
 
-  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">${cards.join('')}</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:10px">
-      * Sentimen skoru sistemdeki verilerden hesaplanır. Veri yoksa Google Maps puanı referans alınabilir.
-    </div>`;
+async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId) {
+  const fromEl = document.getElementById(`comp-from-${cardId}`);
+  const toEl   = document.getElementById(`comp-to-${cardId}`);
+  const dateFrom = fromEl?.value;
+  const dateTo   = toEl?.value;
+
+  if (!dateFrom || !dateTo) { toast('Tarih aralığı seçin', 'error'); return; }
+
+  const { data: settings } = await sb.from('system_settings').select('key,value');
+  const m = {}; (settings||[]).forEach(r => m[r.key]=r.value);
+  const gmapsUrl    = m['gmaps_url']    || '';
+  const analysisUrl = m['analysis_url'] || '';
+  const appSecret   = m['app_secret']   || '';
+
+  if (!gmapsUrl || !appSecret) { toast('Servis yapılandırılmamış', 'error'); return; }
+
+  // Lokasyon veritabanında yoksa oluştur
+  let locId;
+  const { data: existingLoc } = await sb.from('locations')
+    .select('location_id').eq('google_place_id', placeId).maybeSingle();
+
+  if (existingLoc) {
+    locId = existingLoc.location_id;
+  } else {
+    // Phantom brand bul veya oluştur
+    let { data: brand } = await sb.from('brands')
+      .select('brand_id').ilike('name', brandName).eq('is_phantom', true).maybeSingle();
+    if (!brand) {
+      const { data: nb } = await sb.from('brands').insert({
+        name: brandName, is_phantom: true, monitoring_modes: ['location']
+      }).select().single();
+      brand = nb;
+    }
+
+    // Lokasyonu oluştur
+    const { data: nl } = await sb.from('locations').insert({
+      brand_id: brand.brand_id, name: locName,
+      google_place_id: placeId, location_type: 'branch',
+      lat: lat||null, lng: lng||null,
+    }).select().single();
+    locId = nl?.location_id;
+
+    // Connector bağla
+    const { data: conn } = await sb.from('connectors').select('connector_id').eq('key','google_maps').maybeSingle();
+    if (conn && locId) {
+      await sb.from('location_connectors').upsert({
+        location_id: locId, connector_id: conn.connector_id,
+        enabled: true, external_id: placeId,
+      }, { onConflict: 'location_id,connector_id' });
+      // analysis_period oluştur
+      await sb.from('analysis_periods').insert({
+        brand_id: brand.brand_id, location_id: locId,
+        start_date: dateFrom, status: 'in_progress',
+      });
+    }
+  }
+
+  // Buton durumunu güncelle
+  const card = document.getElementById(cardId);
+  const btn  = card?.querySelector('button');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Çekiliyor...'; }
+
+  toast(`${locName} için veri çekimi başlatılıyor...`, 'info');
+
+  try {
+    await fetch(`${gmapsUrl.replace(/\/$/,'')}/fetch`, {
+      method: 'POST',
+      headers: { 'X-App-Secret': appSecret, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, location_id: locId }),
+      signal: AbortSignal.timeout(60000)
+    });
+
+    if (analysisUrl) {
+      await fetch(`${analysisUrl.replace(/\/$/,'')}/analyze`, {
+        method: 'POST', headers: { 'X-App-Secret': appSecret },
+        signal: AbortSignal.timeout(120000)
+      });
+    }
+    toast(`✓ ${locName} verisi çekildi ve analiz edildi`, 'success');
+    if (btn) { btn.disabled=false; btn.textContent='↻ Yenile'; }
+  } catch(e) {
+    toast(`Hata: ${e.message}`, 'error');
+    if (btn) { btn.disabled=false; btn.textContent='📥 Çek'; }
+  }
 }
 
 function closeLoc() {
