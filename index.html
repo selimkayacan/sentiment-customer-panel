@@ -438,9 +438,8 @@ td{padding:11px 13px;font-size:13px}
 
       <!-- RAKİP KARŞILAŞTIRMA (SaaS Full) -->
       <div class="saas-full-only" id="competitor-section" style="margin-top:24px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="margin-bottom:14px">
           <div class="section-title" style="margin-bottom:0">🆚 Rakip Karşılaştırması</div>
-          <button class="btn btn-outline btn-sm" onclick="loadCompetitorComparison()">↻ Yenile</button>
         </div>
         <div id="competitor-comparison"><div class="empty"><span class="spinner"></span></div></div>
       </div>
@@ -1523,7 +1522,9 @@ async function openLoc(locId, name, lat, lng) {
 
   const { data } = await sb.from('reviews').select('review_id').eq('location_id', locId);
   const ids=(data||[]).map(r=>r.review_id);
-  await loadCatTags(ids, 'loc-cat-tags');
+
+  // Kategori tag'leri yerine kategori skor çubukları göster
+  await loadLocCategoryBars(ids, locId, 'loc-cat-tags');
   await loadRevList('loc-reviews', ids, 'negative', 5, true);
 
   // Yakın rakipleri göster (SaaS Full)
@@ -1532,6 +1533,53 @@ async function openLoc(locId, name, lat, lng) {
   }
 
   document.getElementById('loc-detail').scrollIntoView({behavior:'smooth'});
+}
+
+async function loadLocCategoryBars(revIds, locId, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!revIds.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
+
+  const catData = await sbChunkedIn('review_category_analysis',
+    'sentiment, present, categories(name)', 'review_id', revIds, { present: true });
+
+  const { data: analyses } = await sb.from('review_analysis')
+    .select('sentiment_score').in('review_id', revIds.slice(0,5));
+  const avgScore = analyses?.length
+    ? Math.round(analyses.reduce((s,a)=>s+(a.sentiment_score||0),0)/analyses.length) : 0;
+
+  const catMap = {};
+  (catData||[]).forEach(r => {
+    const n = r.categories?.name; if (!n) return;
+    if (!catMap[n]) catMap[n] = {pos:0, neg:0, total:0};
+    catMap[n].total++;
+    if (r.sentiment==='positive') catMap[n].pos++;
+    else if (r.sentiment==='negative') catMap[n].neg++;
+  });
+
+  if (!Object.keys(catMap).length) { el.innerHTML='<div class="empty">Kategori verisi yok</div>'; return; }
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
+        <span style="font-family:'Fraunces',serif;font-size:36px;color:${scoreColor(avgScore)}">${avgScore}</span>
+        <span style="font-size:12px;color:var(--muted)">/ 100 genel sentiment</span>
+      </div>
+      ${Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total).map(([name,c]) => {
+        const pct = Math.round(c.pos/c.total*100);
+        const color = pct>=60?'var(--green)':pct>=40?'#f59e0b':'var(--red)';
+        return `<div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:12px;font-weight:600">${name}</span>
+            <span style="font-size:12px;font-weight:700;color:${color}">${pct}%</span>
+          </div>
+          <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .6s"></div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${c.pos} olumlu · ${c.neg} olumsuz</div>
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 async function loadNearbyCompetitors(locId, locName, lat, lng) {
@@ -1610,6 +1658,18 @@ async function runNearbySearch(myLocId, lat, lng) {
   const myAn  = myIds.length ? (await sb.from('review_analysis').select('sentiment_score').in('review_id', myIds)).data||[] : [];
   const myScore = myAn.length ? Math.round(myAn.reduce((s,a)=>s+(a.sentiment_score||0),0)/myAn.length) : null;
 
+  // Kendi şubemizin kategori haritası
+  const myCatData = await sbChunkedIn('review_category_analysis',
+    'sentiment, present, categories(name)', 'review_id', myIds, { present: true });
+  const myCatMap = {};
+  (myCatData||[]).forEach(c => {
+    const n = c.categories?.name; if (!n) return;
+    if (!myCatMap[n]) myCatMap[n] = {pos:0,neg:0,total:0};
+    myCatMap[n].total++;
+    if (c.sentiment==='positive') myCatMap[n].pos++;
+    else if (c.sentiment==='negative') myCatMap[n].neg++;
+  });
+
   const cards = [];
 
   for (const comp of selected) {
@@ -1637,10 +1697,9 @@ async function runNearbySearch(myLocId, lat, lng) {
         const { data: existingLoc } = await sb.from('locations')
           .select('location_id').eq('google_place_id', r.place_id).maybeSingle();
 
-        let score = null, reviewCount = 0, lastFetch = null;
+        let score = null, reviewCount = 0, lastFetch = null, compCatMap = {};
 
         if (existingLoc) {
-          // location_connectors'tan son çekim tarihini al
           const { data: lc } = await sb.from('location_connectors')
             .select('last_fetched_at').eq('location_id', existingLoc.location_id).maybeSingle();
           lastFetch = lc?.last_fetched_at;
@@ -1648,9 +1707,20 @@ async function runNearbySearch(myLocId, lat, lng) {
           const { data: rv } = await sb.from('reviews').select('review_id').eq('location_id', existingLoc.location_id);
           const rvIds = (rv||[]).map(x=>x.review_id);
           if (rvIds.length) {
-            const { data: an } = await sb.from('review_analysis').select('sentiment_score').in('review_id', rvIds);
+            const an = await sbChunkedIn('review_analysis', 'sentiment_score', 'review_id', rvIds);
             reviewCount = an?.length||0;
             if (reviewCount) score = Math.round(an.reduce((s,a)=>s+(a.sentiment_score||0),0)/reviewCount);
+
+            // Kategori verileri
+            const catData = await sbChunkedIn('review_category_analysis',
+              'sentiment, present, categories(name)', 'review_id', rvIds, { present: true });
+            (catData||[]).forEach(c => {
+              const n = c.categories?.name; if (!n) return;
+              if (!compCatMap[n]) compCatMap[n] = {pos:0,neg:0,total:0};
+              compCatMap[n].total++;
+              if (c.sentiment==='positive') compCatMap[n].pos++;
+              else if (c.sentiment==='negative') compCatMap[n].neg++;
+            });
           }
         }
 
@@ -1660,6 +1730,29 @@ async function runNearbySearch(myLocId, lat, lng) {
         const defaultFrom = oneYearAgo.toISOString().slice(0,10);
         const cardId = `comp-card-${r.place_id.replace(/[^a-z0-9]/gi,'_')}`;
 
+        const catBarsHtml = Object.keys(compCatMap).length ? `
+          <div style="border-top:1px solid var(--line);padding-top:10px;margin-bottom:10px">
+            ${Object.entries(compCatMap).sort((a,b)=>b[1].total-a[1].total).slice(0,5).map(([name,c]) => {
+              const pct = Math.round(c.pos/c.total*100);
+              const color = pct>=60?'var(--green)':pct>=40?'#f59e0b':'var(--red)';
+              const myC = myCatMap[name];
+              const myPct = myC ? Math.round(myC.pos/myC.total*100) : null;
+              const catDiff = myPct !== null ? myPct - pct : null;
+              return `<div style="margin-bottom:7px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+                  <span style="font-size:11px;font-weight:600">${name}</span>
+                  <div style="display:flex;gap:5px;align-items:center">
+                    <span style="font-size:11px;font-weight:700;color:${color}">${pct}%</span>
+                    ${catDiff!==null?`<span style="font-size:10px;color:${catDiff>=0?'var(--green)':'var(--red)'}">${catDiff>=0?'▲':'▼'}${Math.abs(catDiff)}</span>`:''}
+                  </div>
+                </div>
+                <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden">
+                  <div style="height:100%;width:${pct}%;background:${color};border-radius:3px"></div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>` : '';
+
         cards.push(`
           <div id="${cardId}" style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px">
             <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:2px">${comp.name}</div>
@@ -1667,15 +1760,16 @@ async function runNearbySearch(myLocId, lat, lng) {
             <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${r.address||'—'} · ${dist}m</div>
 
             ${score !== null ? `
-              <div style="font-family:'Fraunces',serif;font-size:32px;color:${scoreColor(score)};line-height:1;margin-bottom:4px">${score}</div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${reviewCount} analiz</div>
-              ${diff !== null ? `<div style="font-size:12px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'};margin-bottom:8px">
+              <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+                <span style="font-family:'Fraunces',serif;font-size:32px;color:${scoreColor(score)};line-height:1">${score}</span>
+                <span style="font-size:11px;color:var(--muted)">${reviewCount} analiz</span>
+              </div>
+              ${diff !== null ? `<div style="font-size:12px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'};margin-bottom:6px">
                 ${diff>=0?`▲ ${diff} puan önde`:`▼ ${Math.abs(diff)} puan geride`}
               </div>` : ''}
+              ${catBarsHtml}
               ${lastFetch ? `<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Son çekim: ${fdate(lastFetch)}</div>` : ''}
-            ` : `
-              <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Henüz veri çekilmemiş</div>
-            `}
+            ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Henüz veri çekilmemiş</div>`}
 
             ${r.rating ? `<div style="font-size:11px;color:var(--amber);margin-bottom:10px">★ ${r.rating} (Google)</div>` : ''}
 
@@ -1689,7 +1783,7 @@ async function runNearbySearch(myLocId, lat, lng) {
                   style="border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:11px;font-family:inherit;outline:none">
                 <button class="btn btn-primary btn-sm" style="font-size:11px"
                   onclick="fetchCompetitorData('${r.place_id}','${comp.name}','${r.name}',${r.lat||0},${r.lng||0},'${cardId}')">
-                  📥 Çek
+                  ${score !== null ? '↻ Yenile' : '📥 Çek'}
                 </button>
               </div>
             </div>
