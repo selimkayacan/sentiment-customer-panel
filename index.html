@@ -1038,7 +1038,7 @@ function goTab(tab) {
 
 // ── CHUNKED SORGU YARDIMCISI ─────────────────────────────
 // Supabase URL limiti aşmasın diye büyük ID listelerini parçalar
-async function sbChunkedIn(table, select, col, ids, extraFilters = {}, chunkSize = 8) {
+async function sbChunkedIn(table, select, col, ids, extraFilters = {}, chunkSize = 5) {
   const results = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
@@ -1708,7 +1708,10 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
   const dateFrom = fromEl?.value;
   const dateTo   = toEl?.value;
 
-  if (!dateFrom || !dateTo) { toast('Tarih aralığı seçin', 'error'); return; }
+  // toast fallback
+  const _toast = (typeof toast === 'function') ? toast : (msg) => alert(msg);
+
+  if (!dateFrom || !dateTo) { _toast('Tarih aralığı seçin'); return; }
 
   const { data: settings } = await sb.from('system_settings').select('key,value');
   const m = {}; (settings||[]).forEach(r => m[r.key]=r.value);
@@ -1716,7 +1719,7 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
   const analysisUrl = m['analysis_url'] || '';
   const appSecret   = m['app_secret']   || '';
 
-  if (!gmapsUrl || !appSecret) { toast('Servis yapılandırılmamış', 'error'); return; }
+  if (!gmapsUrl || !appSecret) { _toast('Servis yapılandırılmamış'); return; }
 
   // Lokasyon veritabanında yoksa oluştur
   let locId;
@@ -1781,10 +1784,10 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
       }).catch(() => {});
     }
 
-    toast(`✓ ${locName} verisi çekildi, analiz arka planda devam ediyor`, 'success');
+    _toast(`✓ ${locName} verisi çekildi, analiz arka planda devam ediyor`);
     if (btn) { btn.disabled=false; btn.textContent='↻ Yenile'; }
   } catch(e) {
-    toast(`Hata: ${e.message}`, 'error');
+    _toast(`Hata: ${e.message}`);
     if (btn) { btn.disabled=false; btn.textContent='📥 Çek'; }
   }
 }
