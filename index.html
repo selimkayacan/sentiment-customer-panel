@@ -1774,7 +1774,7 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
       method: 'POST',
       headers: { 'X-App-Secret': appSecret, 'Content-Type': 'application/json' },
       body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, location_id: locId }),
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(60000)
     });
 
     // Analiz motorunu tetikle ama bekleme — arkaplanda çalışsın
