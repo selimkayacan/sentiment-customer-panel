@@ -2039,36 +2039,63 @@ async function loadSocialCompetitorComparison() {
 }
 
 // ── SOCIAL MEDIA ──────────────────────────────────────────
+let _socialRevIds   = null;
+let _socialAnalyses = null;
+
+function setSocialSource(src) {
+  socialSource = src;
+  document.querySelectorAll('.social-tab').forEach(t=>t.classList.toggle('active', t.dataset.src===src));
+  if (_socialRevIds && _socialAnalyses) {
+    _renderSocialFromCache();
+  } else {
+    loadSocialTab();
+  }
+}
+
+async function _renderSocialFromCache() {
+  let revIds = _socialRevIds.map(r=>r.review_id);
+  if (socialSource !== 'all') {
+    const conn = allConnectors.find(c=>c.key===socialSource);
+    if (conn) revIds = _socialRevIds.filter(r=>r.connector_id===conn.connector_id).map(r=>r.review_id);
+  }
+  const revSet = new Set(revIds);
+  const all = Object.values(_socialAnalyses).filter(a=>revSet.has(a.review_id));
+  const total=all.length, pos=all.filter(a=>a.overall_sentiment==='positive').length;
+  const neg=all.filter(a=>a.overall_sentiment==='negative').length;
+  const avg=total?Math.round(all.reduce((s,a)=>s+(a.sentiment_score||0),0)/total):0;
+  document.getElementById('soc-score').textContent=avg;
+  document.getElementById('soc-score').style.color=scoreColor(avg);
+  document.getElementById('soc-pos').textContent=pos;
+  document.getElementById('soc-neg').textContent=neg;
+  await loadCatTags(revIds,'soc-cat-tags');
+  await loadSocialReviews(revIds);
+}
+
 async function loadSocialTab() {
   const socialConnIds = allConnectors.filter(c=>['twitter_x','eksisozluk'].includes(c.key)).map(c=>c.connector_id);
   const locIds = await getLocIds();
 
-  // Tüm sosyal review'ları çek ve cache'le (sadece ilk seferde)
   if (!_socialRevIds) {
     let allRevs = [];
-    const chunks = [];
-    for (let i = 0; i < locIds.length; i += 5) chunks.push(locIds.slice(i, i+5));
-    for (const chunk of chunks) {
-      let q = sb.from('reviews').select('review_id, connector_id').in('location_id', chunk);
-      if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
-      const { data } = await q;
+    for (let i=0; i<locIds.length; i+=5) {
+      const chunk = locIds.slice(i,i+5);
+      let q = sb.from('reviews').select('review_id,connector_id').in('location_id',chunk);
+      if (socialConnIds.length) q = q.in('connector_id',socialConnIds);
+      const {data} = await q;
       if (data) allRevs.push(...data);
     }
     _socialRevIds = allRevs;
-
-    // Analizleri de cache'le
-    const allRevIds = allRevs.map(r=>r.review_id);
-    if (allRevIds.length) {
-      const analyses = await sbChunkedIn('review_analysis',
-        'review_id, overall_sentiment, sentiment_score', 'review_id', allRevIds);
+    const allIds = allRevs.map(r=>r.review_id);
+    if (allIds.length) {
+      const an = await sbChunkedIn('review_analysis','review_id,overall_sentiment,sentiment_score','review_id',allIds);
       _socialAnalyses = {};
-      (analyses||[]).forEach(a => _socialAnalyses[a.review_id] = a);
+      (an||[]).forEach(a=>_socialAnalyses[a.review_id]=a);
     } else {
       _socialAnalyses = {};
     }
   }
 
-  await renderSocialTab();
+  await _renderSocialFromCache();
 }
 
 async function loadSocialReviews(preloadedIds = null) {
@@ -2121,41 +2148,6 @@ async function loadSocialReviews(preloadedIds = null) {
       </div>
     </div>`;
   }).join('');
-}
-
-let _socialRevIds   = null; // [{review_id, connector_id}]
-let _socialAnalyses = null; // {review_id: {overall_sentiment, sentiment_score}}
-
-function setSocialSource(src) {
-  socialSource = src;
-  document.querySelectorAll('.social-tab').forEach(t=>t.classList.toggle('active', t.dataset.src===src));
-  renderSocialTab(); // cache'den render et, DB'ye gitme
-}
-
-async function renderSocialTab() {
-  if (!_socialRevIds || !_socialAnalyses) { await loadSocialTab(); return; }
-
-  // Aktif kaynağa göre filtrele
-  let revIds = _socialRevIds.map(r=>r.review_id);
-  if (socialSource !== 'all') {
-    const conn = allConnectors.find(c=>c.key===socialSource);
-    if (conn) revIds = _socialRevIds.filter(r=>r.connector_id===conn.connector_id).map(r=>r.review_id);
-  }
-
-  const revSet = new Set(revIds);
-  const all = Object.values(_socialAnalyses).filter(a => revSet.has(a.review_id));
-  const total = all.length;
-  const pos = all.filter(a=>a.overall_sentiment==='positive').length;
-  const neg = all.filter(a=>a.overall_sentiment==='negative').length;
-  const avg = total ? Math.round(all.reduce((s,a)=>s+(a.sentiment_score||0),0)/total) : 0;
-
-  document.getElementById('soc-score').textContent = avg;
-  document.getElementById('soc-score').style.color = scoreColor(avg);
-  document.getElementById('soc-pos').textContent = pos;
-  document.getElementById('soc-neg').textContent = neg;
-
-  await loadCatTags(revIds, 'soc-cat-tags');
-  await loadSocialReviews(revIds);
 }
 
 // ── CATEGORIES ────────────────────────────────────────────
