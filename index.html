@@ -2040,26 +2040,29 @@ async function loadSocialCompetitorComparison() {
 
 // ── SOCIAL MEDIA ──────────────────────────────────────────
 async function loadSocialTab() {
-  const socialConnKeys = ['twitter_x', 'eksisozluk'];
-  const socialConnIds  = allConnectors.filter(c=>socialConnKeys.includes(c.key)).map(c=>c.connector_id);
+  const socialConnIds = allConnectors.filter(c=>['twitter_x','eksisozluk'].includes(c.key)).map(c=>c.connector_id);
   const locIds = await getLocIds();
 
-  let revs = [];
-  if (socialConnIds.length) {
-    // connector filtreli chunked sorgu
+  // Tüm sosyal review'ları çek ve cache'le (sadece ilk seferde)
+  if (!_socialRevIds) {
+    let allRevs = [];
     const chunks = [];
     for (let i = 0; i < locIds.length; i += 5) chunks.push(locIds.slice(i, i+5));
     for (const chunk of chunks) {
-      let q = sb.from('reviews').select('review_id, connector_id').in('location_id', chunk).in('connector_id', socialConnIds);
-      if (socialSource !== 'all') {
-        const conn = allConnectors.find(c=>c.key===socialSource);
-        if (conn) q = q.eq('connector_id', conn.connector_id);
-      }
+      let q = sb.from('reviews').select('review_id, connector_id').in('location_id', chunk);
+      if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
       const { data } = await q;
-      if (data) revs.push(...data);
+      if (data) allRevs.push(...data);
     }
+    _socialRevIds = allRevs;
   }
-  const revIds = revs.map(r=>r.review_id);
+
+  // Aktif kaynağa göre filtrele
+  let revIds = _socialRevIds.map(r=>r.review_id);
+  if (socialSource !== 'all') {
+    const conn = allConnectors.find(c=>c.key===socialSource);
+    if (conn) revIds = _socialRevIds.filter(r=>r.connector_id===conn.connector_id).map(r=>r.review_id);
+  }
 
   if (!revIds.length) {
     ['soc-score','soc-pos','soc-neg'].forEach(id=>document.getElementById(id).textContent='0');
@@ -2134,10 +2137,12 @@ async function loadSocialReviews(preloadedIds = null) {
   }).join('');
 }
 
+let _socialRevIds = null;
+
 function setSocialSource(src) {
   socialSource = src;
   document.querySelectorAll('.social-tab').forEach(t=>t.classList.toggle('active', t.dataset.src===src));
-  loadSocialTab();
+  loadSocialTab(); // cache'li veriyi kullanır, yeniden çekmez
 }
 
 // ── CATEGORIES ────────────────────────────────────────────
