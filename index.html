@@ -2053,6 +2053,7 @@ function setSocialSource(src) {
 }
 
 async function _renderSocialFromCache() {
+  if (!_socialRevIds || !_socialAnalyses) { await loadSocialTab(); return; }
   let revIds = _socialRevIds.map(r=>r.review_id);
   if (socialSource !== 'all') {
     const conn = allConnectors.find(c=>c.key===socialSource);
@@ -2103,27 +2104,31 @@ async function loadSocialReviews(preloadedIds = null) {
   el.innerHTML='<div class="empty"><span class="spinner"></span></div>';
 
   let revIds = preloadedIds;
-  if (!revIds) {
-    const socialConnIds = allConnectors.filter(c=>['twitter_x','eksisozluk'].includes(c.key)).map(c=>c.connector_id);
-    const locIds = await getLocIds();
-    let q = sb.from('reviews').select('review_id').in('location_id', locIds);
-    if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
+  if (!revIds && _socialRevIds) {
+    revIds = _socialRevIds.map(r=>r.review_id);
     if (socialSource !== 'all') {
       const conn = allConnectors.find(c=>c.key===socialSource);
-      if (conn) q = q.eq('connector_id', conn.connector_id);
+      if (conn) revIds = _socialRevIds.filter(r=>r.connector_id===conn.connector_id).map(r=>r.review_id);
     }
-    const { data } = await q;
-    revIds = (data||[]).map(r=>r.review_id);
+  }
+  if (!revIds?.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
+
+  // Cache'den filtrele — DB'ye gitme
+  const sentFilter = document.getElementById('soc-sent-filter')?.value;
+  let analyses;
+  if (_socialAnalyses) {
+    const revSet = new Set(revIds);
+    analyses = Object.values(_socialAnalyses)
+      .filter(a => revSet.has(a.review_id) && (!sentFilter || a.overall_sentiment === sentFilter))
+      .sort((a,b) => b.sentiment_score - a.sentiment_score)
+      .slice(0, 30);
+  } else {
+    analyses = await sbChunkedIn('review_analysis',
+      'review_id, overall_sentiment, sentiment_score', 'review_id',
+      revIds, sentFilter ? { overall_sentiment: sentFilter } : {});
+    analyses = analyses.sort((a,b)=>b.sentiment_score-a.sentiment_score).slice(0,30);
   }
 
-  if (!revIds.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
-
-  const sentFilter = document.getElementById('soc-sent-filter').value;
-  const extraFilters = sentFilter ? { overall_sentiment: sentFilter } : {};
-  let analyses = await sbChunkedIn('review_analysis',
-    'review_id, overall_sentiment, sentiment_score',
-    'review_id', revIds, extraFilters);
-  analyses = analyses.sort((a,b)=>b.sentiment_score-a.sentiment_score).slice(0,30);
   if (!analyses?.length) { el.innerHTML='<div class="empty">Yorum bulunamadı</div>'; return; }
 
   const reviews = await sbChunkedIn('reviews',
