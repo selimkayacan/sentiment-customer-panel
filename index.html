@@ -372,6 +372,11 @@ td{padding:11px 13px;font-size:13px}
         </div>
         <div class="card-body">
           <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+          <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--muted)">
+            <span>● Büyük nokta = fazla yorum (yüksek güven)</span>
+            <span style="color:#f59e0b">● Sarı nokta = az yorum (&lt;5) — dikkatli yorumla</span>
+            <span style="color:#f0a500">● Turuncu = uygulanan öneri</span>
+          </div>
           <div class="saas-full-only" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">⚑ Uygulanan Öneriler</div>
@@ -1243,8 +1248,18 @@ async function loadTrend(locIds) {
     milestoneMap[mo].push(m.item_title);
   });
 
-  const pointColors = labels.map(l => milestoneMap[l] ? '#f0a500' : '#1e3a5f');
-  const pointSizes  = labels.map(l => milestoneMap[l] ? 10 : 4);
+  const LOW_VOL = 5; // Bu eşiğin altı düşük güven
+  const pointColors = labels.map(l => {
+    if (milestoneMap[l]) return '#f0a500';
+    if (months[l].count < LOW_VOL) return '#f59e0b'; // Sarı = az veri
+    return catFilter ? '#7c3aed' : '#1e3a5f';
+  });
+  const pointSizes = labels.map(l => {
+    if (milestoneMap[l]) return 10;
+    // Yorum sayısına göre 3-9 arası ölçekle
+    const cnt = months[l].count;
+    return Math.min(9, Math.max(3, Math.round(3 + Math.log2(cnt + 1) * 1.5)));
+  });
 
   const ctx = document.getElementById('trend-chart').getContext('2d');
   if (trendChart) trendChart.destroy();
@@ -1279,6 +1294,21 @@ async function loadTrend(locIds) {
         legend: { display: false },
         tooltip: {
           callbacks: {
+            label: (item) => {
+              const l   = labels[item.dataIndex];
+              const cnt = months[l]?.count || 0;
+              const val = item.parsed.y;
+              const conf = cnt < LOW_VOL ? ' ⚠ düşük güven' : '';
+              return trendMode === 'score'
+                ? ` Skor: ${val} / 100${conf}`
+                : ` ${val} yorum`;
+            },
+            afterLabel: (item) => {
+              const l   = labels[item.dataIndex];
+              const cnt = months[l]?.count || 0;
+              if (trendMode === 'score') return ` ${cnt} yorum`;
+              return '';
+            },
             afterBody: (items) => {
               const label = labels[items[0]?.dataIndex];
               const ms    = milestoneMap[label];
