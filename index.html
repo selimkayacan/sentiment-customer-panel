@@ -2103,12 +2103,16 @@ async function loadSocialReviews(preloadedIds = null) {
   if (!revIds.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
 
   const sentFilter = document.getElementById('soc-sent-filter').value;
-  let q = sb.from('review_analysis').select('review_id, overall_sentiment, sentiment_score').in('review_id', revIds).order('sentiment_score',{ascending:false}).limit(30);
-  if (sentFilter) q = q.eq('overall_sentiment', sentFilter);
-  const { data: analyses } = await q;
+  const extraFilters = sentFilter ? { overall_sentiment: sentFilter } : {};
+  let analyses = await sbChunkedIn('review_analysis',
+    'review_id, overall_sentiment, sentiment_score',
+    'review_id', revIds, extraFilters);
+  analyses = analyses.sort((a,b)=>b.sentiment_score-a.sentiment_score).slice(0,30);
   if (!analyses?.length) { el.innerHTML='<div class="empty">Yorum bulunamadı</div>'; return; }
 
-  const { data: reviews } = await sb.from('reviews').select('review_id, review_text, review_date, source_url, connector_id, location_id').in('review_id', analyses.map(a=>a.review_id));
+  const reviews = await sbChunkedIn('reviews',
+    'review_id, review_text, review_date, source_url, connector_id, location_id',
+    'review_id', analyses.map(a=>a.review_id));
   const rMap={}; (reviews||[]).forEach(r=>rMap[r.review_id]=r);
 
   el.innerHTML = analyses.map(a => {
