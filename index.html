@@ -2077,23 +2077,29 @@ async function loadSocialTab() {
   const locIds = await getLocIds();
 
   if (!_socialRevIds) {
+    // location_id üzerinden direkt sorgula — review_id zinciri yok
     let allRevs = [];
     for (let i=0; i<locIds.length; i+=5) {
       const chunk = locIds.slice(i,i+5);
-      let q = sb.from('reviews').select('review_id,connector_id').in('location_id',chunk);
-      if (socialConnIds.length) q = q.in('connector_id',socialConnIds);
+      // review_sentiment_summary view'ı location_id + connector_id ile filtreler
+      let q = sb.from('review_sentiment_summary')
+        .select('review_id,connector_id,overall_sentiment,sentiment_score')
+        .in('location_id', chunk);
+      if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
       const {data} = await q;
       if (data) allRevs.push(...data);
     }
-    _socialRevIds = allRevs;
-    const allIds = allRevs.map(r=>r.review_id);
-    if (allIds.length) {
-      const an = await sbChunkedIn('review_analysis','review_id,overall_sentiment,sentiment_score','review_id',allIds);
-      _socialAnalyses = {};
-      (an||[]).forEach(a=>_socialAnalyses[a.review_id]=a);
-    } else {
-      _socialAnalyses = {};
-    }
+    // review_id + connector_id listesi cache'le
+    _socialRevIds = allRevs.map(r => ({ review_id: r.review_id, connector_id: r.connector_id }));
+    // Analizleri de cache'le — zaten view'dan geldi
+    _socialAnalyses = {};
+    allRevs.forEach(r => {
+      _socialAnalyses[r.review_id] = {
+        review_id: r.review_id,
+        overall_sentiment: r.overall_sentiment,
+        sentiment_score: r.sentiment_score,
+      };
+    });
   }
 
   await _renderSocialFromCache();
