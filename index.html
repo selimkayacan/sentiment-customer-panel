@@ -1394,17 +1394,28 @@ async function loadCatTags(revIds, containerId='cat-tags') {
   });
   if (!Object.keys(catMap).length) { el.innerHTML='<div class="empty">Kategori verisi yok</div>'; return; }
 
-  // Tıklanabilir — kategori filtresi uygular
+  // revIds'i container data attribute'a sakla — onclick'te geçirme
+  el.dataset.revids = JSON.stringify(revIds.slice(0,200));
+
   el.innerHTML = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total).map(([name,c]) => {
     const pr=c.total?c.pos/c.total:0, nr=c.total?c.neg/c.total:0;
     let cls='tag-neutral',icon='●';
     if (pr>0.6){cls='tag-green';icon='▲';}
     else if (nr>0.4){cls='tag-red';icon='▼';}
     else if (nr>0.2){cls='tag-amber';icon='◆';}
-    return `<span class="tag ${cls}" title="${c.pos} pozitif, ${c.neg} negatif" style="cursor:pointer"
-      onclick="filterReviewsByCategory('${name.replace(/'/g,"\\'")}', ${JSON.stringify(revIds.slice(0,200))})"
+    return `<span class="tag ${cls}" title="${c.pos} pozitif, ${c.neg} negatif"
+      style="cursor:pointer" data-catname="${encodeURIComponent(name)}" data-container="${containerId}"
+      onclick="handleCatTagClick(this)"
       >${icon} ${name} <span class="tag-count">${c.total}</span></span>`;
   }).join('');
+}
+
+function handleCatTagClick(el) {
+  const catName  = decodeURIComponent(el.dataset.catname);
+  const cid      = el.dataset.container;
+  const container = document.getElementById(cid);
+  const revIds   = container?.dataset.revids ? JSON.parse(container.dataset.revids) : [];
+  filterReviewsByCategory(catName, revIds, cid);
 }
 
 let _activeCatFilter = null;
@@ -1444,11 +1455,20 @@ async function filterReviewsByCategory(catName, revIds) {
   const panel = document.createElement('div');
   panel.id = 'cat-filtered-reviews';
   panel.style.cssText = 'margin-top:16px;padding-top:16px;border-top:2px solid var(--line)';
-  panel.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div style="font-size:13px;font-weight:700">📂 <strong>${catName}</strong> kategorisindeki yorumlar</div>
-    <button onclick="filterReviewsByCategory('${catName.replace(/'/g,"\\'")}', [])" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px">×</button>
-  </div>
-  ${sorted.map(a => {
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px';
+  closeBtn.onclick = () => {
+    panel.remove();
+    _activeCatFilter = null;
+    document.querySelectorAll('.tag').forEach(t => t.style.opacity='1');
+  };
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px';
+  header.innerHTML = `<div style="font-size:13px;font-weight:700">📂 <strong>${catName}</strong> kategorisindeki yorumlar</div>`;
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+  panel.innerHTML += sorted.map(a => {
     const sent=a.overall_sentiment||'neutral';
     const cls=sent==='positive'?'pos':sent==='negative'?'neg':'neu';
     return `<div class="review-card ${sent}" style="margin-bottom:8px">
@@ -1458,9 +1478,9 @@ async function filterReviewsByCategory(catName, revIds) {
         <div class="rv-meta">${platformBadge(a.connector_id)} <span>${fdate(a.review_date)}</span></div>
       </div>
     </div>`;
-  }).join('')}`;
+  }).join('');
+  panel.insertBefore(header, panel.firstChild);
 
-  // Kategori kartının altına ekle
   const catCard = document.querySelector('#cat-tags')?.closest('.card');
   if (catCard) catCard.after(panel);
   else document.getElementById('tab-overview').appendChild(panel);
@@ -1697,18 +1717,16 @@ async function openLoc(locId, name, lat, lng) {
   if (currentCustomer?.modes?.key === 'saas_full' && lat && lng) {
     await loadNearbyCompetitors(locId, name, lat, lng);
 
-    // Daha önce rakip analizi yapıldıysa otomatik aç ve sonuçları yükle
-    const { data: prevResults } = await sb.from('competitor_brands')
-      .select('brand_id').eq('customer_id', currentCustomer?.customer_id).limit(1);
-    if (prevResults?.length) {
-      // Seçili rakipler varsa checkbox'ları işaretle
-      const { data: selComps } = await sb.from('competitor_brands')
-        .select('brand_id').eq('customer_id', currentCustomer?.customer_id);
-      (selComps||[]).forEach(c => {
+    // Daha önce bu lokasyon için rakip karşılaştırması yapıldıysa otomatik yükle
+    const { data: prevComps } = await sb.from('competitor_brands')
+      .select('brand_id').eq('customer_id', currentCustomer.customer_id);
+    if (prevComps?.length) {
+      // Seçili rakiplerin checkbox'larını işaretle
+      prevComps.forEach(c => {
         const cb = document.querySelector(`#comp-label-${c.brand_id} input`);
         if (cb) { cb.checked = true; toggleCompetitorLabel(c.brand_id); }
       });
-      // Otomatik ara
+      // nearby-results'ta bu lokasyon için önceki sonuç var mı kontrol et
       await runNearbySearch(locId, lat, lng);
     }
   }
