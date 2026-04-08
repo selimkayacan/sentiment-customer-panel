@@ -330,7 +330,7 @@ td{padding:11px 13px;font-size:13px}
                     stroke-dasharray="289" stroke-dashoffset="289" stroke-linecap="round"
                     style="transition:stroke-dashoffset 1s ease,stroke .4s"/>
                 </svg>
-                <div class="score-ring-num"><span id="ring-num">—</span><span>/ 100</span></div>
+                <div class="score-ring-num"><span id="ring-num">—</span><br><span style="font-size:11px;color:var(--muted)">/ 100 sentiment</span></div>
               </div>
               <div style="flex:1">
                 <div class="sent-bar mb20" style="margin-bottom:10px">
@@ -374,8 +374,8 @@ td{padding:11px 13px;font-size:13px}
           <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
           <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--muted)">
             <span>● Büyük nokta = fazla yorum (yüksek güven)</span>
-            <span style="color:#f59e0b">● Sarı nokta = az yorum (&lt;5) — dikkatli yorumla</span>
-            <span style="color:#f0a500">● Turuncu = uygulanan öneri</span>
+            <span style="color:#cbd5e1;font-weight:700">● Gri = az yorum (&lt;5) — dikkatli yorumla</span>
+            <span style="color:#7c3aed">● Mor = uygulanan öneri</span>
           </div>
           <div class="saas-full-only" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -441,11 +441,36 @@ td{padding:11px 13px;font-size:13px}
         <div class="card">
           <div class="card-header">
             <span class="card-title" id="loc-detail-name">Şube Detayı</span>
-            <button class="btn btn-outline btn-sm" onclick="closeLoc()">Kapat</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-outline btn-sm" id="btn-add-compare" onclick="addToCompare()" style="display:none">+ Karşılaştırmaya Ekle</button>
+              <button class="btn btn-outline btn-sm" onclick="closeLoc()">Kapat</button>
+            </div>
           </div>
           <div class="card-body">
-            <div class="tag-grid mb24" id="loc-cat-tags" style="margin-bottom:16px"></div>
-            <div class="review-list" id="loc-reviews"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+              <div>
+                <div class="tag-grid mb24" id="loc-cat-tags" style="margin-bottom:16px"></div>
+                <div class="review-list" id="loc-reviews"></div>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Sentiment Trendi</div>
+                <div style="height:220px"><canvas id="loc-trend-chart"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ŞUBE KARŞILAŞTIRMA GRAFİĞİ -->
+      <div id="loc-compare-section" style="display:none;margin-top:20px">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📊 Şube Karşılaştırması</span>
+            <button class="btn btn-outline btn-sm" onclick="clearCompare()">Temizle</button>
+          </div>
+          <div class="card-body">
+            <div id="loc-compare-labels" style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap"></div>
+            <div style="height:280px"><canvas id="loc-compare-chart"></canvas></div>
           </div>
         </div>
       </div>
@@ -1128,29 +1153,34 @@ async function loadOverview() {
   document.getElementById('ov-neg').textContent    = neg;
   document.getElementById('ov-neg-pct').textContent = `%${Math.round(neg/total*100)} oran`;
 
-  // Platform dağılımı
-  const { data: revs } = await sb.from('reviews').select('connector_id').in('review_id', revIds);
+  // Ring — ortalama sentiment skoru
+  const circ=289;
+  document.getElementById('ring-num').textContent = avg;
+  document.getElementById('ring-circle').style.strokeDashoffset = circ-(circ*avg/100);
+  document.getElementById('ring-circle').style.stroke = scoreColor(avg);
+  // "/ 100" yerine açıklayıcı label
+  const ringLabel = avg>=70?'İyi':'Ortalama sentiment skoru';
+  document.querySelector('.score-ring-num span:last-child').textContent = '/ 100';
+
+  // Platform dağılımı — review_id IN yerine location_id üzerinden view kullan
+  const locRevData = await sbChunkedIn('review_sentiment_summary',
+    'connector_id', 'location_id', locIds);
   const counts = {};
-  (revs||[]).forEach(r => { counts[r.connector_id] = (counts[r.connector_id]||0)+1; });
+  (locRevData||[]).forEach(r => { counts[r.connector_id] = (counts[r.connector_id]||0)+1; });
   const platforms = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const pTotal = Object.values(counts).reduce((s,v)=>s+v,0) || 1;
   document.getElementById('ov-sources').textContent = `${platforms.length} kaynak`;
   document.getElementById('platform-body').innerHTML = platforms.map(([cid,cnt]) => `
     <div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:13px;font-weight:600">${connName(cid)}</span>
-        <span style="font-size:11px;color:var(--muted)">${cnt} (%${Math.round(cnt/total*100)})</span>
+        <span style="font-size:11px;color:var(--muted)">${cnt} yorum (%${Math.round(cnt/pTotal*100)})</span>
       </div>
       <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${Math.round(cnt/total*100)}%;background:var(--navy);border-radius:3px"></div>
+        <div style="height:100%;width:${Math.round(cnt/pTotal*100)}%;background:var(--navy);border-radius:3px"></div>
       </div>
     </div>
   `).join('')||'<div class="empty">Veri yok</div>';
-
-  // Ring
-  const circ=289;
-  document.getElementById('ring-num').textContent = avg;
-  document.getElementById('ring-circle').style.strokeDashoffset = circ-(circ*avg/100);
-  document.getElementById('ring-circle').style.stroke = scoreColor(avg);
 
   // Bar
   const pp=Math.round(pos/total*100), np=Math.round(neu/total*100), negp=100-pp-np;
@@ -1248,11 +1278,11 @@ async function loadTrend(locIds) {
     milestoneMap[mo].push(m.item_title);
   });
 
-  const LOW_VOL = 5; // Bu eşiğin altı düşük güven
+  const LOW_VOL = 5;
   const pointColors = labels.map(l => {
-    if (milestoneMap[l]) return '#f0a500';
-    if (months[l].count < LOW_VOL) return '#f59e0b'; // Sarı = az veri
-    return catFilter ? '#7c3aed' : '#1e3a5f';
+    if (milestoneMap[l]) return '#7c3aed'; // Mor = milestone
+    if (months[l].count < LOW_VOL) return '#cbd5e1'; // Açık gri = az veri / düşük güven
+    return catFilter ? '#0ea5e9' : '#1e3a5f';
   });
   const pointSizes = labels.map(l => {
     if (milestoneMap[l]) return 10;
@@ -1706,32 +1736,142 @@ async function openLoc(locId, name, lat, lng) {
   document.getElementById('loc-detail-name').textContent=name;
   document.getElementById('loc-reviews').innerHTML='<div class="empty"><span class="spinner"></span></div>';
 
-  const { data } = await sb.from('reviews').select('review_id').eq('location_id', locId);
+  const { data } = await sb.from('reviews').select('review_id, review_date').eq('location_id', locId);
   const ids=(data||[]).map(r=>r.review_id);
 
-  // Kategori tag'leri yerine kategori skor çubukları göster
   await loadLocCategoryBars(ids, locId, 'loc-cat-tags');
   await loadRevList('loc-reviews', ids, 'negative', 5, true);
+  await drawLocTrend(locId, data||[]);
 
-  // Yakın rakipleri göster (SaaS Full)
+  // Karşılaştırma butonu
+  const btnCmp = document.getElementById('btn-add-compare');
+  if (btnCmp) {
+    btnCmp.style.display = 'block';
+    btnCmp.dataset.locid = locId;
+    btnCmp.dataset.name  = name;
+  }
+
+  // Rakip analizi — SaaS Full
   if (currentCustomer?.modes?.key === 'saas_full' && lat && lng) {
     await loadNearbyCompetitors(locId, name, lat, lng);
-
-    // Daha önce bu lokasyon için rakip karşılaştırması yapıldıysa otomatik yükle
-    const { data: prevComps } = await sb.from('competitor_brands')
-      .select('brand_id').eq('customer_id', currentCustomer.customer_id);
-    if (prevComps?.length) {
-      // Seçili rakiplerin checkbox'larını işaretle
-      prevComps.forEach(c => {
-        const cb = document.querySelector(`#comp-label-${c.brand_id} input`);
-        if (cb) { cb.checked = true; toggleCompetitorLabel(c.brand_id); }
-      });
-      // nearby-results'ta bu lokasyon için önceki sonuç var mı kontrol et
+    // Tüm global rakipleri otomatik seç ve ara
+    const allCbs = document.querySelectorAll('#nearby-competitors input[type=checkbox]');
+    if (allCbs.length) {
+      allCbs.forEach(cb => { cb.checked = true; toggleCompetitorLabel(cb.value); });
       await runNearbySearch(locId, lat, lng);
     }
   }
 
   document.getElementById('loc-detail').scrollIntoView({behavior:'smooth'});
+}
+
+let locTrendChart = null;
+async function drawLocTrend(locId, reviews) {
+  const ctx = document.getElementById('loc-trend-chart')?.getContext('2d');
+  if (!ctx) return;
+  if (locTrendChart) { locTrendChart.destroy(); locTrendChart = null; }
+  if (!reviews.length) return;
+
+  const ids = reviews.map(r=>r.review_id);
+  const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', ids);
+  const aMap = {}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
+
+  const months = {};
+  reviews.forEach(r => {
+    const d = new Date(r.review_date); if (isNaN(d)) return;
+    const mo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!months[mo]) months[mo] = [];
+    const a = aMap[r.review_id];
+    if (a) months[mo].push(a.sentiment_score||50);
+  });
+  const labels = Object.keys(months).sort().slice(-12);
+  const scores = labels.map(m => months[m]?.length
+    ? Math.round(months[m].reduce((s,v)=>s+v,0)/months[m].length) : null);
+
+  locTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels.map(l => { const [y,m]=l.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('tr-TR',{month:'short',year:'2-digit'}); }),
+      datasets: [{ data: scores, borderColor: '#1e3a5f', backgroundColor: 'rgba(30,58,95,.06)',
+        borderWidth: 2, pointRadius: 3, fill: true, tension: .4, spanGaps: true }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ y:{min:0,max:100,grid:{color:'#f3f4f6'},ticks:{font:{size:10}}}, x:{grid:{display:false},ticks:{font:{size:10}}} }
+    }
+  });
+}
+
+// ── ŞUBE KARŞILAŞTIRMA ───────────────────────────────────
+let compareData = {}; // {locId: {name, labels, scores}}
+let compareChart = null;
+const COMPARE_COLORS = ['#1e3a5f','#0ea5e9','#7c3aed'];
+
+async function addToCompare() {
+  const btn = document.getElementById('btn-add-compare');
+  const locId = btn?.dataset.locid;
+  const name  = btn?.dataset.name;
+  if (!locId || compareData[locId]) return;
+  if (Object.keys(compareData).length >= 3) {
+    alert('En fazla 3 şube karşılaştırabilirsiniz.'); return;
+  }
+
+  const { data: reviews } = await sb.from('reviews').select('review_id, review_date').eq('location_id', locId);
+  if (!reviews?.length) return;
+  const ids = reviews.map(r=>r.review_id);
+  const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', ids);
+  const aMap = {}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
+  const months = {};
+  reviews.forEach(r => {
+    const d = new Date(r.review_date); if (isNaN(d)) return;
+    const mo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!months[mo]) months[mo] = [];
+    const a = aMap[r.review_id]; if (a) months[mo].push(a.sentiment_score||50);
+  });
+  const labels = Object.keys(months).sort().slice(-12);
+  const scores = labels.map(m => months[m]?.length ? Math.round(months[m].reduce((s,v)=>s+v,0)/months[m].length) : null);
+  compareData[locId] = { name, labels, scores };
+  renderCompareChart();
+}
+
+function renderCompareChart() {
+  const section = document.getElementById('loc-compare-section');
+  section.style.display = 'block';
+  section.scrollIntoView({behavior:'smooth'});
+
+  // Tüm etiketlerin birleşimi
+  const allLabels = [...new Set(Object.values(compareData).flatMap(d=>d.labels))].sort();
+  const entries = Object.values(compareData);
+
+  const datasets = entries.map((d, i) => ({
+    label: d.name,
+    data: allLabels.map(l => { const idx=d.labels.indexOf(l); return idx>=0?d.scores[idx]:null; }),
+    borderColor: COMPARE_COLORS[i], backgroundColor: COMPARE_COLORS[i]+'22',
+    borderWidth: 2.5, pointRadius: 4, fill: false, tension: .4, spanGaps: true
+  }));
+
+  // Label badge'leri
+  document.getElementById('loc-compare-labels').innerHTML = entries.map((d,i) =>
+    `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
+      <span style="width:12px;height:12px;border-radius:50%;background:${COMPARE_COLORS[i]};display:inline-block"></span>${d.name}</span>`
+  ).join('');
+
+  const ctx = document.getElementById('loc-compare-chart').getContext('2d');
+  if (compareChart) compareChart.destroy();
+  compareChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allLabels.map(l=>{const[y,m]=l.split('-');return new Date(+y,+m-1,1).toLocaleDateString('tr-TR',{month:'short',year:'2-digit'});}), datasets },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ y:{min:0,max:100,grid:{color:'#f3f4f6'},ticks:{font:{size:11}}}, x:{grid:{display:false},ticks:{font:{size:11}}} }
+    }
+  });
+}
+
+function clearCompare() {
+  compareData = {};
+  if (compareChart) { compareChart.destroy(); compareChart = null; }
+  document.getElementById('loc-compare-section').style.display = 'none';
 }
 
 async function loadLocCategoryBars(revIds, locId, containerId) {
