@@ -2044,14 +2044,22 @@ async function loadSocialTab() {
   const socialConnIds  = allConnectors.filter(c=>socialConnKeys.includes(c.key)).map(c=>c.connector_id);
   const locIds = await getLocIds();
 
-  let q = sb.from('reviews').select('review_id, connector_id').in('location_id', locIds);
-  if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
-  if (socialSource !== 'all') {
-    const conn = allConnectors.find(c=>c.key===socialSource);
-    if (conn) q = q.eq('connector_id', conn.connector_id);
+  let revs = [];
+  if (socialConnIds.length) {
+    // connector filtreli chunked sorgu
+    const chunks = [];
+    for (let i = 0; i < locIds.length; i += 5) chunks.push(locIds.slice(i, i+5));
+    for (const chunk of chunks) {
+      let q = sb.from('reviews').select('review_id, connector_id').in('location_id', chunk).in('connector_id', socialConnIds);
+      if (socialSource !== 'all') {
+        const conn = allConnectors.find(c=>c.key===socialSource);
+        if (conn) q = q.eq('connector_id', conn.connector_id);
+      }
+      const { data } = await q;
+      if (data) revs.push(...data);
+    }
   }
-  const { data: revs } = await q;
-  const revIds = (revs||[]).map(r=>r.review_id);
+  const revIds = revs.map(r=>r.review_id);
 
   if (!revIds.length) {
     ['soc-score','soc-pos','soc-neg'].forEach(id=>document.getElementById(id).textContent='0');
@@ -2060,7 +2068,8 @@ async function loadSocialTab() {
     return;
   }
 
-  const { data: analyses } = await sb.from('review_analysis').select('overall_sentiment, sentiment_score').in('review_id', revIds);
+  const analyses = await sbChunkedIn('review_analysis',
+    'overall_sentiment, sentiment_score', 'review_id', revIds);
   const all=analyses||[], total=all.length;
   const pos=all.filter(a=>a.overall_sentiment==='positive').length;
   const neg=all.filter(a=>a.overall_sentiment==='negative').length;
