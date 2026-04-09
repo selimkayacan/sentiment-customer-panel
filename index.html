@@ -441,7 +441,16 @@ td{padding:11px 13px;font-size:13px}
         <div class="card">
           <div class="card-header">
             <span class="card-title" id="loc-detail-name">Şube Detayı</span>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <select id="loc-cat-filter" onchange="reloadLocTrend()" style="border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;font-family:inherit;font-size:12px;outline:none">
+                <option value="">Tüm Kategoriler</option>
+              </select>
+              <select id="loc-period" onchange="reloadLocTrend()" style="border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;font-family:inherit;font-size:12px;outline:none">
+                <option value="12">Son 12 Ay</option>
+                <option value="24">Son 24 Ay</option>
+                <option value="6">Son 6 Ay</option>
+                <option value="0">Tümü</option>
+              </select>
               <button class="btn btn-outline btn-sm" id="btn-add-compare" onclick="addToCompare()" style="display:none">+ Karşılaştırmaya Ekle</button>
               <button class="btn btn-outline btn-sm" onclick="closeLoc()">Kapat</button>
             </div>
@@ -1731,11 +1740,17 @@ function haversine(lat1, lng1, lat2, lng2) {
 }
 
 async function openLoc(locId, name, lat, lng) {
+  currentOpenLocId = locId;
+  currentOpenLocReviews = [];
   document.getElementById('loc-detail').style.display='block';
   document.getElementById('loc-detail-name').textContent=name;
   document.getElementById('loc-reviews').innerHTML='<div class="empty"><span class="spinner"></span></div>';
 
+  const catSel = document.getElementById('loc-cat-filter');
+  if (catSel) { catSel.innerHTML = '<option value="">Tüm Kategoriler</option>'; }
+
   const { data } = await sb.from('reviews').select('review_id, review_date').eq('location_id', locId);
+  currentOpenLocReviews = data || [];
   const ids=(data||[]).map(r=>r.review_id);
 
   await loadLocCategoryBars(ids, locId, 'loc-cat-tags');
@@ -1764,26 +1779,52 @@ async function openLoc(locId, name, lat, lng) {
   document.getElementById('loc-detail').scrollIntoView({behavior:'smooth'});
 }
 
+let currentOpenLocId = null;
+let currentOpenLocReviews = [];
 let locTrendChart = null;
+
 async function drawLocTrend(locId, reviews) {
   const ctx = document.getElementById('loc-trend-chart')?.getContext('2d');
   if (!ctx) return;
   if (locTrendChart) { locTrendChart.destroy(); locTrendChart = null; }
   if (!reviews.length) return;
 
-  const ids = reviews.map(r=>r.review_id);
-  const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', ids);
+  const periodMonths = parseInt(document.getElementById('loc-period')?.value || '12');
+  const catFilter    = document.getElementById('loc-cat-filter')?.value || '';
+
+  const dateFrom = periodMonths > 0
+    ? new Date(Date.now() - periodMonths * 30 * 24 * 3600 * 1000).toISOString().slice(0,10)
+    : '2000-01-01';
+
+  const filteredReviews = reviews.filter(r => !r.review_date || r.review_date >= dateFrom);
+  const ids = filteredReviews.map(r=>r.review_id);
+  if (!ids.length) return;
+
+  await populateLocCategoryFilter(ids);
+
+  let filteredIds = ids;
+  if (catFilter) {
+    const catRevs = await sbChunkedIn('review_category_analysis',
+      'review_id, categories(name)', 'review_id', ids, { present: true });
+    const matchingRevIds = new Set((catRevs||[])
+      .filter(c => c.categories?.name === catFilter)
+      .map(c => c.review_id));
+    filteredIds = ids.filter(id => matchingRevIds.has(id));
+    if (!filteredIds.length) return;
+  }
+
+  const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', filteredIds);
   const aMap = {}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
 
   const months = {};
-  reviews.forEach(r => {
+  filteredReviews.filter(r => filteredIds.includes(r.review_id)).forEach(r => {
     const d = new Date(r.review_date); if (isNaN(d)) return;
     const mo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if (!months[mo]) months[mo] = [];
     const a = aMap[r.review_id];
     if (a) months[mo].push(a.sentiment_score||50);
   });
-  const labels = Object.keys(months).sort().slice(-12);
+  const labels = Object.keys(months).sort();
   const scores = labels.map(m => months[m]?.length
     ? Math.round(months[m].reduce((s,v)=>s+v,0)/months[m].length) : null);
 
@@ -1791,7 +1832,7 @@ async function drawLocTrend(locId, reviews) {
     type: 'line',
     data: {
       labels: labels.map(l => { const [y,m]=l.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('tr-TR',{month:'short',year:'2-digit'}); }),
-      datasets: [{ data: scores, borderColor: '#1e3a5f', backgroundColor: 'rgba(30,58,95,.06)',
+      datasets: [{ data: scores, borderColor: catFilter ? '#7c3aed' : '#1e3a5f', backgroundColor: catFilter ? 'rgba(124,58,237,.05)' : 'rgba(30,58,95,.06)',
         borderWidth: 2, pointRadius: 3, fill: true, tension: .4, spanGaps: true }]
     },
     options: { responsive:true, maintainAspectRatio:false,
@@ -1801,8 +1842,30 @@ async function drawLocTrend(locId, reviews) {
   });
 }
 
+async function populateLocCategoryFilter(revIds) {
+  const sel = document.getElementById('loc-cat-filter');
+  if (!sel || sel.options.length > 1) return;
+  const catData = await sbChunkedIn('review_category_analysis',
+    'categories(name)', 'review_id', revIds.slice(0,50), { present: true });
+  const catNames = [...new Set((catData||[]).map(c=>c.categories?.name).filter(Boolean))].sort();
+  catNames.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+}
+
+async function reloadLocTrend() {
+  if (currentOpenLocId && currentOpenLocReviews.length) {
+    await drawLocTrend(currentOpenLocId, currentOpenLocReviews);
+  }
+  if (Object.keys(compareRawData).length) {
+    await renderCompareChart();
+  }
+}
+
 // ── ŞUBE KARŞILAŞTIRMA ───────────────────────────────────
-let compareData = {}; // {locId: {name, labels, scores}}
+let compareRawData = {}; // {locId: {name, reviews}}
 let compareChart = null;
 const COMPARE_COLORS = ['#1e3a5f','#0ea5e9','#7c3aed'];
 
@@ -1810,37 +1873,58 @@ async function addToCompare() {
   const btn = document.getElementById('btn-add-compare');
   const locId = btn?.dataset.locid;
   const name  = btn?.dataset.name;
-  if (!locId || compareData[locId]) return;
-  if (Object.keys(compareData).length >= 3) {
+  if (!locId || compareRawData[locId]) return;
+  if (Object.keys(compareRawData).length >= 3) {
     alert('En fazla 3 şube karşılaştırabilirsiniz.'); return;
   }
 
   const { data: reviews } = await sb.from('reviews').select('review_id, review_date').eq('location_id', locId);
   if (!reviews?.length) return;
-  const ids = reviews.map(r=>r.review_id);
-  const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', ids);
-  const aMap = {}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
-  const months = {};
-  reviews.forEach(r => {
-    const d = new Date(r.review_date); if (isNaN(d)) return;
-    const mo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (!months[mo]) months[mo] = [];
-    const a = aMap[r.review_id]; if (a) months[mo].push(a.sentiment_score||50);
-  });
-  const labels = Object.keys(months).sort().slice(-12);
-  const scores = labels.map(m => months[m]?.length ? Math.round(months[m].reduce((s,v)=>s+v,0)/months[m].length) : null);
-  compareData[locId] = { name, labels, scores };
-  renderCompareChart();
+  compareRawData[locId] = { name, reviews };
+  await renderCompareChart();
 }
 
-function renderCompareChart() {
+async function renderCompareChart() {
   const section = document.getElementById('loc-compare-section');
   section.style.display = 'block';
   section.scrollIntoView({behavior:'smooth'});
 
+  const periodMonths = parseInt(document.getElementById('loc-period')?.value || '12');
+  const catFilter    = document.getElementById('loc-cat-filter')?.value || '';
+  const dateFrom = periodMonths > 0
+    ? new Date(Date.now() - periodMonths * 30 * 24 * 3600 * 1000).toISOString().slice(0,10)
+    : '2000-01-01';
+
+  const entries = await Promise.all(Object.entries(compareRawData).map(async ([locId, d], i) => {
+    const filteredReviews = d.reviews.filter(r => !r.review_date || r.review_date >= dateFrom);
+    let ids = filteredReviews.map(r=>r.review_id);
+    if (!ids.length) return { name: d.name, labels: [], scores: [] };
+
+    if (catFilter) {
+      const catRevs = await sbChunkedIn('review_category_analysis',
+        'review_id, categories(name)', 'review_id', ids, { present: true });
+      const matchingRevIds = new Set((catRevs||[])
+        .filter(c => c.categories?.name === catFilter)
+        .map(c => c.review_id));
+      ids = ids.filter(id => matchingRevIds.has(id));
+    }
+
+    const analyses = await sbChunkedIn('review_analysis', 'review_id, sentiment_score', 'review_id', ids);
+    const aMap = {}; (analyses||[]).forEach(a=>aMap[a.review_id]=a);
+    const months = {};
+    filteredReviews.filter(r => ids.includes(r.review_id)).forEach(r => {
+      const dObj = new Date(r.review_date); if (isNaN(dObj)) return;
+      const mo = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`;
+      if (!months[mo]) months[mo] = [];
+      const a = aMap[r.review_id]; if (a) months[mo].push(a.sentiment_score||50);
+    });
+    const labels = Object.keys(months).sort();
+    const scores = labels.map(m => months[m]?.length ? Math.round(months[m].reduce((s,v)=>s+v,0)/months[m].length) : null);
+    return { name: d.name, labels, scores };
+  }));
+
   // Tüm etiketlerin birleşimi
-  const allLabels = [...new Set(Object.values(compareData).flatMap(d=>d.labels))].sort();
-  const entries = Object.values(compareData);
+  const allLabels = [...new Set(entries.flatMap(d=>d.labels))].sort();
 
   const datasets = entries.map((d, i) => ({
     label: d.name,
@@ -1868,7 +1952,7 @@ function renderCompareChart() {
 }
 
 function clearCompare() {
-  compareData = {};
+  compareRawData = {};
   if (compareChart) { compareChart.destroy(); compareChart = null; }
   document.getElementById('loc-compare-section').style.display = 'none';
 }
