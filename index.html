@@ -2778,7 +2778,7 @@ async function triggerGmaps() {
   el.textContent=`${dateFrom} — ${dateTo} arası yorumlar çekiliyor...`; el.style.color='var(--muted)';
   try {
     const locId = document.getElementById('gmaps-loc-select').value;
-    const body  = { date_from: dateFrom, date_to: dateTo };
+    const body  = { date_from: dateFrom, date_to: dateTo, brand_id: currentBrandId };
     if (locId !== 'all') body.location_id = locId;
     await fetch(`${_svc.gmaps.replace(/\/$/,'')}/fetch`, {
       method:'POST', headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
@@ -2816,7 +2816,7 @@ async function triggerSocial() {
       await fetch(`${url.replace(/\/$/,'')}/fetch`, {
         method:'POST',
         headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
-        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
+        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, brand_id: currentBrandId }),
         signal:AbortSignal.timeout(120000)
       });
       done++;
