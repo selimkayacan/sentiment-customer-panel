@@ -1191,9 +1191,11 @@ async function loadOverview() {
   document.getElementById('l-neu').textContent=`${np}% Nötr`;
   document.getElementById('l-neg').textContent=`${negp}% Negatif`;
 
-  await loadTrend(locIds);
-  await loadCatTags(revIds, 'cat-tags');
-  await loadBestWorst(revIds);
+  await Promise.all([
+    loadTrend(locIds),
+    loadCatTags(revIds, 'cat-tags'),
+    loadBestWorst(revIds),
+  ]);
   loadRecommendations(); // Async — beklemeden başlat
 }
 
@@ -1230,9 +1232,6 @@ async function loadTrend(locIds) {
   // Kategori filtresi varsa o kategorideki review'ları filtrele
   let filteredRevIds = revIds;
   if (catFilter) {
-    const catData = await sbChunkedIn('review_category_analysis',
-      'review_id', 'review_id', revIds, { present: true });
-    // Kategori ismiyle filtrele
     const catRevs = await sbChunkedIn('review_category_analysis',
       'review_id, categories(name)', 'review_id', revIds, { present: true });
     const matchingRevIds = new Set((catRevs||[])
@@ -1412,7 +1411,7 @@ async function loadCatTags(revIds, containerId='cat-tags') {
   if (!revIds.length) { el.innerHTML='<div class="empty">Veri yok</div>'; return; }
   const data = await sbChunkedIn('review_category_analysis',
     'category_id, sentiment, present, categories(name)',
-    'review_id', revIds.slice(0,100), { present: true });
+    'review_id', revIds, { present: true });
   const catMap = {};
   (data||[]).forEach(r => {
     const name=r.categories?.name||r.category_id;
@@ -1425,7 +1424,7 @@ async function loadCatTags(revIds, containerId='cat-tags') {
   if (!Object.keys(catMap).length) { el.innerHTML='<div class="empty">Kategori verisi yok</div>'; return; }
 
   // revIds'i container data attribute'a sakla — onclick'te geçirme
-  el.dataset.revids = JSON.stringify(revIds.slice(0,200));
+  el.dataset.revids = JSON.stringify(revIds);
 
   el.innerHTML = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total).map(([name,c]) => {
     const pr=c.total?c.pos/c.total:0, nr=c.total?c.neg/c.total:0;
@@ -2318,25 +2317,33 @@ async function loadSocialCompetitorComparison() {
     ...competitors.map(c => ({ ...c.brands, isOwn: false })),
   ];
 
-  const stats = await Promise.all(allBrands.map(async brand => {
-    const { data: locs } = await sb.from('locations').select('location_id').eq('brand_id', brand.brand_id);
-    const locIds = (locs||[]).map(l=>l.location_id);
+  // Tüm markaların lokasyonlarını tek sorguda çek
+  const allBrandIds = allBrands.map(b => b.brand_id);
+  const { data: allLocs } = await sb.from('locations').select('location_id, brand_id').in('brand_id', allBrandIds);
+  const locsByBrand = {};
+  (allLocs||[]).forEach(l => { (locsByBrand[l.brand_id] = locsByBrand[l.brand_id]||[]).push(l.location_id); });
+
+  // Tüm lokasyonların review'larını tek sorguda çek
+  const allLocIds = (allLocs||[]).map(l => l.location_id);
+  let revQuery = sb.from('review_sentiment_summary').select('review_id, connector_id, location_id, overall_sentiment, sentiment_score').in('location_id', allLocIds);
+  const { data: allRevData } = await revQuery;
+  const revsByLoc = {};
+  (allRevData||[]).forEach(r => { (revsByLoc[r.location_id] = revsByLoc[r.location_id]||[]).push(r); });
+
+  const stats = allBrands.map(brand => {
+    const locIds = locsByBrand[brand.brand_id] || [];
     if (!locIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0 };
 
-    let q = sb.from('reviews').select('review_id').in('location_id', locIds);
-    if (socialConnIds.length) q = q.in('connector_id', socialConnIds);
-    const { data: revs } = await q;
-    const revIds = (revs||[]).map(r=>r.review_id);
-    if (!revIds.length) return { ...brand, score: null, total: 0, pos: 0, neg: 0 };
+    let revs = locIds.flatMap(lid => revsByLoc[lid]||[]);
+    if (socialConnIds.length) revs = revs.filter(r => socialConnIds.includes(r.connector_id));
+    const total = revs.length;
+    if (!total) return { ...brand, score: null, total: 0, pos: 0, neg: 0 };
 
-    const { data: an } = await sb.from('review_analysis')
-      .select('overall_sentiment, sentiment_score').in('review_id', revIds);
-    const all=an||[], total=all.length;
-    const pos=all.filter(a=>a.overall_sentiment==='positive').length;
-    const neg=all.filter(a=>a.overall_sentiment==='negative').length;
-    const avg=total?Math.round(all.reduce((s,a)=>s+(a.sentiment_score||0),0)/total):null;
+    const pos = revs.filter(r => r.overall_sentiment === 'positive').length;
+    const neg = revs.filter(r => r.overall_sentiment === 'negative').length;
+    const avg = Math.round(revs.reduce((s,r) => s+(r.sentiment_score||0), 0) / total);
     return { ...brand, score: avg, total, pos, neg };
-  }));
+  });
 
   const sorted = [...stats].sort((a,b)=>(b.score||0)-(a.score||0));
   const myStats = stats.find(s=>s.isOwn);
