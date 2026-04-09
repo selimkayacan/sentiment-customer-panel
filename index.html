@@ -929,6 +929,7 @@ async function afterLogin() {
 
   const role = usr?.role || 'manager';
   currentCustomer = usr?.customers || null;
+  window._userBrandIds = usr?.brand_ids || null;  // null = tüm markalar
 
   // Rol görünürlüğü
   const isManager = role === 'manager' || role === 'admin';
@@ -973,14 +974,22 @@ async function loadSystemSettings() {
 // ── BRAND & PERIOD ────────────────────────────────────────
 async function loadBrands() {
   if (!currentCustomer) return;
-  const { data } = await sb.from('brands').select('brand_id, name').eq('customer_id', currentCustomer.customer_id);
+  let q = sb.from('brands').select('brand_id, name').eq('customer_id', currentCustomer.customer_id).eq('is_phantom', false);
+  const { data } = await q;
+  let brands = data || [];
+
+  // Kullanıcının brand_ids kısıtı varsa filtrele
+  if (window._userBrandIds?.length) {
+    brands = brands.filter(b => window._userBrandIds.includes(b.brand_id));
+  }
+
   const sel = document.getElementById('brand-sel');
   sel.innerHTML = '<option value="">Marka seç...</option>';
-  (data||[]).forEach(b => {
+  brands.forEach(b => {
     const o = document.createElement('option');
     o.value = b.brand_id; o.textContent = b.name; sel.appendChild(o);
   });
-  if (data?.length) { sel.value = data[0].brand_id; currentBrandId = data[0].brand_id; }
+  if (brands.length) { sel.value = brands[0].brand_id; currentBrandId = brands[0].brand_id; }
 }
 
 async function onBrandChange() {
