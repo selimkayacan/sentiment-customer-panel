@@ -2305,7 +2305,9 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
     // Analiz motorunu tetikle ama bekleme — arkaplanda çalışsın
     if (analysisUrl) {
       fetch(`${analysisUrl.replace(/\/$/,'')}/analyze`, {
-        method: 'POST', headers: { 'X-App-Secret': appSecret }
+        method: 'POST',
+        headers: { 'X-App-Secret': appSecret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_id: currentBrandId })
       }).catch(() => {});
     }
 
@@ -2786,7 +2788,9 @@ async function triggerGmaps() {
     });
     el.textContent='✓ Çekildi! Analiz başlatılıyor...';
     if (_svc.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
-      method:'POST', headers:{'X-App-Secret':_svc.secret},
+      method:'POST',
+      headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+      body: JSON.stringify({ brand_id: currentBrandId }),
       signal:AbortSignal.timeout(300000)
     });
     el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
@@ -2826,7 +2830,9 @@ async function triggerSocial() {
   if (done > 0) {
     el.textContent='✓ Çekildi! Analiz başlatılıyor...';
     if (_svc?.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
-      method:'POST', headers:{'X-App-Secret':_svc.secret},
+      method:'POST',
+      headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+      body: JSON.stringify({ brand_id: currentBrandId }),
       signal:AbortSignal.timeout(300000)
     });
     el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
