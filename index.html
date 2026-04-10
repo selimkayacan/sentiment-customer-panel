@@ -2779,21 +2779,42 @@ async function triggerGmaps() {
   const dateTo   = document.getElementById('gmaps-date-to')?.value;
   if (!dateFrom || !dateTo) { el.textContent='⚠ Tarih aralığı seçin'; el.style.color='var(--amber)'; return; }
 
-  btn.disabled=true; btn.textContent='⏳ Çekiliyor...';
-  el.textContent=`${dateFrom} — ${dateTo} arası yorumlar çekiliyor...`; el.style.color='var(--muted)';
+  btn.disabled=true; btn.textContent='⏳ Çalışıyor...';
+  el.textContent='⏳ Veri çekimi başlatıldı, arka planda devam ediyor...'; el.style.color='var(--muted)';
+
   try {
     const locId = document.getElementById('gmaps-loc-select').value;
     const body  = { date_from: dateFrom, date_to: dateTo, brand_id: currentBrandId };
     if (locId !== 'all') body.location_id = locId;
+
+    // Çekimi başlat (background, hemen döner)
     await fetch(`${_svc.gmaps.replace(/\/$/,'')}/fetch`, {
       method:'POST', headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
-      body: JSON.stringify(body), signal:AbortSignal.timeout(30000)
+      body: JSON.stringify(body), signal:AbortSignal.timeout(15000)
     });
-    el.textContent='⏳ Çekim arka planda devam ediyor. Tamamlanınca "Analiz Et" butonuna basın.';
-    el.style.color='var(--amber)';
-    reload();
-  } catch(e) { el.textContent='✗ '+e.message; el.style.color='var(--red)'; }
-  finally { btn.disabled=false; btn.textContent='📍 Google Maps Çek ve Analiz Et'; }
+
+    // Çekim arka planda devam ediyor — analizi de hemen başlat
+    el.textContent='⏳ Çekim ve analiz arka planda devam ediyor...'; el.style.color='var(--muted)';
+
+    if (_svc.analysis) {
+      fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
+        method:'POST',
+        headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+        body: JSON.stringify({ brand_id: currentBrandId })
+      }).catch(()=>{});
+    }
+
+    // 30 saniye sonra sayfayı yenile
+    setTimeout(() => {
+      el.textContent='✓ İşlem tamamlandı, veriler yenilendi.'; el.style.color='var(--green)';
+      reload();
+      btn.disabled=false; btn.textContent='📍 Google Maps Çek ve Analiz Et';
+    }, 30000);
+
+  } catch(e) {
+    el.textContent='✗ '+e.message; el.style.color='var(--red)';
+    btn.disabled=false; btn.textContent='📍 Google Maps Çek ve Analiz Et';
+  }
 }
 
 async function triggerSocial() {
@@ -2825,9 +2846,23 @@ async function triggerSocial() {
   }
 
   if (done > 0) {
-    el.textContent='⏳ Çekim arka planda devam ediyor. Tamamlanınca "Analiz Et" butonuna basın.';
-    el.style.color='var(--amber)';
-    reload();
+    el.textContent='⏳ Çekim arka planda devam ediyor, analiz başlatıldı...';
+    el.style.color='var(--muted)';
+
+    // Analizi otomatik başlat
+    if (_svc?.analysis) {
+      fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
+        method:'POST',
+        headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
+        body: JSON.stringify({ brand_id: currentBrandId })
+      }).catch(()=>{});
+    }
+
+    // 30 saniye sonra yenile
+    setTimeout(() => {
+      el.textContent='✓ İşlem tamamlandı, veriler yenilendi.'; el.style.color='var(--green)';
+      reload();
+    }, 30000);
   }
   btn.disabled=false; btn.textContent='🔍 Sosyal Medya Çek ve Analiz Et';
 }
