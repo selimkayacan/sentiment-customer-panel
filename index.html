@@ -1214,7 +1214,7 @@ async function loadOverview() {
     loadCatTags(revIds, 'cat-tags'),
     loadBestWorst(revIds),
   ]);
-  loadRecommendations(); // Async — beklemeden başlat
+  // Öneriler artık otomatik yüklenmiyor — Aksiyonlar sekmesinden manuel tetiklenir
 }
 
 // ── TREND ────────────────────────────────────────────────
@@ -2113,7 +2113,12 @@ async function runNearbySearch(myLocId, lat, lng) {
       const data = await resp.json();
       const results = (data.results||[]);
 
-      if (!results.length) {
+      // Sadece adında rakip marka adı geçen sonuçları al
+      const filtered = results.filter(r =>
+        r.name?.toLowerCase().includes(comp.name.toLowerCase().split(' ')[0])
+      );
+
+      if (!filtered.length) {
         cards.push(`<div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--line)">
           <div style="font-size:13px;font-weight:700">${comp.name}</div>
           <div style="font-size:12px;color:var(--muted);margin-top:4px">${radius}m içinde şube bulunamadı</div>
@@ -2121,7 +2126,7 @@ async function runNearbySearch(myLocId, lat, lng) {
         continue;
       }
 
-      for (const r of results.slice(0,2)) {
+      for (const r of filtered.slice(0,2)) {
         const dist = (r.lat && r.lng) ? Math.round(haversine(lat, lng, r.lat, r.lng)*1000) : '?';
 
         // Veritabanında bu place_id var mı?
@@ -2305,9 +2310,7 @@ async function fetchCompetitorData(placeId, brandName, locName, lat, lng, cardId
     // Analiz motorunu tetikle ama bekleme — arkaplanda çalışsın
     if (analysisUrl) {
       fetch(`${analysisUrl.replace(/\/$/,'')}/analyze`, {
-        method: 'POST',
-        headers: { 'X-App-Secret': appSecret, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand_id: currentBrandId })
+        method: 'POST', headers: { 'X-App-Secret': appSecret }
       }).catch(() => {});
     }
 
@@ -2784,16 +2787,10 @@ async function triggerGmaps() {
     if (locId !== 'all') body.location_id = locId;
     await fetch(`${_svc.gmaps.replace(/\/$/,'')}/fetch`, {
       method:'POST', headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
-      body: JSON.stringify(body), signal:AbortSignal.timeout(120000)
+      body: JSON.stringify(body), signal:AbortSignal.timeout(30000)
     });
-    el.textContent='✓ Çekildi! Analiz başlatılıyor...';
-    if (_svc.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
-      method:'POST',
-      headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
-      body: JSON.stringify({ brand_id: currentBrandId }),
-      signal:AbortSignal.timeout(300000)
-    });
-    el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
+    el.textContent='⏳ Çekim arka planda devam ediyor. Tamamlanınca "Analiz Et" butonuna basın.';
+    el.style.color='var(--amber)';
     reload();
   } catch(e) { el.textContent='✗ '+e.message; el.style.color='var(--red)'; }
   finally { btn.disabled=false; btn.textContent='📍 Google Maps Çek ve Analiz Et'; }
@@ -2828,14 +2825,8 @@ async function triggerSocial() {
   }
 
   if (done > 0) {
-    el.textContent='✓ Çekildi! Analiz başlatılıyor...';
-    if (_svc?.analysis) await fetch(`${_svc.analysis.replace(/\/$/,'')}/analyze`, {
-      method:'POST',
-      headers:{'X-App-Secret':_svc.secret,'Content-Type':'application/json'},
-      body: JSON.stringify({ brand_id: currentBrandId }),
-      signal:AbortSignal.timeout(300000)
-    });
-    el.textContent=`✓ Tamamlandı — ${new Date().toLocaleTimeString('tr-TR')}`; el.style.color='var(--green)';
+    el.textContent='⏳ Çekim arka planda devam ediyor. Tamamlanınca "Analiz Et" butonuna basın.';
+    el.style.color='var(--amber)';
     reload();
   }
   btn.disabled=false; btn.textContent='🔍 Sosyal Medya Çek ve Analiz Et';
