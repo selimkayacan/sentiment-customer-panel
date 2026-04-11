@@ -917,8 +917,8 @@ async function afterLogin() {
     if (el.classList.contains('tab')) el.style.display = isManager ? 'block' : 'none';
   });
 
-  // SaaS Full görünürlüğü
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  // SaaS Full görünürlüğü — ilk marka seçimine göre (onBrandChange'de güncellenir)
+  const isSaasFull = false; // İlk yüklemede gizle, marka seçilince güncellenir
   document.querySelectorAll('.saas-full-only').forEach(el => {
     el.style.display = isSaasFull ? '' : 'none';
     if (el.classList.contains('tab')) el.style.display = isSaasFull ? 'block' : 'none';
@@ -953,7 +953,7 @@ async function loadSystemSettings() {
 // ── BRAND & PERIOD ────────────────────────────────────────
 async function loadBrands() {
   if (!currentCustomer) return;
-  let q = sb.from('brands').select('brand_id, name').eq('customer_id', currentCustomer.customer_id).eq('is_phantom', false);
+  let q = sb.from('brands').select('brand_id, name, mode_id, status, modes(key, name)').eq('customer_id', currentCustomer.customer_id).eq('is_phantom', false);
   const { data } = await q;
   let brands = data || [];
 
@@ -968,12 +968,25 @@ async function loadBrands() {
     const o = document.createElement('option');
     o.value = b.brand_id; o.textContent = b.name; sel.appendChild(o);
   });
-  if (brands.length) { sel.value = brands[0].brand_id; currentBrandId = brands[0].brand_id; }
+  if (brands.length) {
+    sel.value = brands[0].brand_id;
+    currentBrandId = brands[0].brand_id;
+    window._currentBrandData = brands[0]; // mode bilgisi için sakla
+  }
+  window._allBrandData = brands;
 }
 
 async function onBrandChange() {
   currentBrandId = document.getElementById('brand-sel').value;
   currentPeriodId = '';
+  // Seçili markanın mode bilgisini güncelle
+  window._currentBrandData = (window._allBrandData || []).find(b => b.brand_id === currentBrandId) || null;
+  // SaaS Full görünürlüğünü güncelle
+  const isSaasFull = window._currentBrandData?.modes?.key === 'saas_full';
+  document.querySelectorAll('.saas-full-only').forEach(el => {
+    el.style.display = isSaasFull ? '' : 'none';
+    if (el.classList.contains('tab')) el.style.display = isSaasFull ? 'block' : 'none';
+  });
   await loadPeriods();
   await loadMeta();
   reload();
@@ -1041,6 +1054,14 @@ async function loadAliases() {
   const { data } = await sb.from('brand_aliases').select('alias_text, alias_type').eq('brand_id', currentBrandId).eq('enabled', true);
   activeKeywords = (data||[]).map(a => ({ text: a.alias_text, type: a.alias_type }));
   renderKeywords();
+}
+
+// ── BRAND MODE HELPERS ────────────────────────────────────
+function currentBrandMode() {
+  return window._currentBrandData?.modes?.key || null;
+}
+function isBrandSaasFull() {
+  return currentBrandMode() === 'saas_full';
 }
 
 // ── RELOAD ────────────────────────────────────────────────
@@ -1553,7 +1574,7 @@ async function loadRevList(containerId, revIds, sent, limit, asc) {
 async function loadCompetitorComparison() {
   const el = document.getElementById('competitor-comparison');
   if (!el || !currentCustomer) return;
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  const isSaasFull = isBrandSaasFull();
   if (!isSaasFull) return;
 
   el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
@@ -1754,7 +1775,7 @@ async function openLoc(locId, name, lat, lng) {
   }
 
   // Rakip analizi — SaaS Full
-  if (currentCustomer?.modes?.key === 'saas_full' && lat && lng) {
+  if (isBrandSaasFull() && lat && lng) {
     await loadNearbyCompetitors(locId, name, lat, lng);
     // Tüm global rakipleri otomatik seç ve ara
     const allCbs = document.querySelectorAll('#nearby-competitors input[type=checkbox]');
@@ -2311,7 +2332,7 @@ function closeLoc() {
 async function loadCompetitorKeywords() {
   const el = document.getElementById('competitor-keywords-body');
   if (!el || !currentCustomer) return;
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  const isSaasFull = isBrandSaasFull();
   if (!isSaasFull) return;
 
   const { data: competitors } = await sb.from('competitor_brands')
@@ -2374,7 +2395,7 @@ async function removeCompetitorKeyword(brandId, text) {
 async function loadSocialCompetitorComparison() {
   const el = document.getElementById('social-competitor-comparison');
   if (!el || !currentCustomer) return;
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  const isSaasFull = isBrandSaasFull();
   if (!isSaasFull) return;
 
   el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
@@ -2836,7 +2857,7 @@ async function triggerSocial() {
 
 // ── MİLESTONE ────────────────────────────────────────────
 async function showAddMilestone() {
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  const isSaasFull = isBrandSaasFull();
   if (!isSaasFull) return;
   document.getElementById('milestone-form').style.display = 'block';
   document.getElementById('ms-date').value = new Date().toISOString().slice(0,10);
@@ -2970,7 +2991,7 @@ async function loadRecommendations() {
   if (!el) return;
 
   // SaaS Full kontrolü
-  const isSaasFull = currentCustomer?.modes?.key === 'saas_full';
+  const isSaasFull = isBrandSaasFull();
   if (!isSaasFull) return;
 
   if (!currentBrandId || !_svc?.analysis || !_svc?.secret) {
