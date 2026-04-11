@@ -579,27 +579,6 @@ td{padding:11px 13px;font-size:13px}
     <!-- AKSİYONLAR -->
     <div class="page manager-only" id="tab-actions">
 
-      <!-- Yeni Marka -->
-      <div class="action-section">
-        <div class="action-section-title">+ Yeni Marka Ekle</div>
-        <div class="action-section-sub">Takip etmek istediğiniz yeni bir marka oluşturun.</div>
-        <div style="display:flex;gap:10px;max-width:500px">
-          <input id="new-brand-name" type="text" placeholder="Marka adı" style="flex:2;border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:13px;outline:none">
-          <select id="new-brand-sector" style="flex:1;border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:13px;outline:none;background:var(--white)">
-            <option value="retail">Perakende</option>
-            <option value="restaurant">Restoran/Kafe</option>
-            <option value="health">Sağlık</option>
-            <option value="education">Eğitim</option>
-            <option value="hotel">Otel</option>
-            <option value="ecommerce">E-ticaret</option>
-            <option value="custom">Diğer</option>
-          </select>
-          <button class="btn btn-primary" onclick="createNewBrand()">Oluştur</button>
-        </div>
-        <div id="new-brand-result" style="margin-top:8px;font-size:13px"></div>
-      </div>
-
-      <hr style="border:none;border-top:1px solid var(--line);margin:24px 0">
 
       <!-- Google Maps -->
       <div class="action-section">
@@ -2756,18 +2735,6 @@ function toggleSource(src) {
 }
 
 // ── ACTIONS: NEW BRAND ────────────────────────────────────
-async function createNewBrand() {
-  if (!currentCustomer) return;
-  const name   = document.getElementById('new-brand-name').value.trim();
-  const sector = document.getElementById('new-brand-sector').value;
-  const el     = document.getElementById('new-brand-result');
-  if (!name) { el.textContent='Marka adı zorunlu'; el.style.color='var(--red)'; return; }
-  const { error } = await sb.from('brands').insert({ customer_id: currentCustomer.customer_id, name, sector_template: sector, monitoring_modes: ['location','brand'] });
-  if (error) { el.textContent='Hata: '+error.message; el.style.color='var(--red)'; return; }
-  el.textContent='✓ Marka oluşturuldu!'; el.style.color='var(--green)';
-  document.getElementById('new-brand-name').value='';
-  await loadBrands();
-}
 
 // ── ACTIONS: FETCH ────────────────────────────────────────
 async function triggerGmaps() {
